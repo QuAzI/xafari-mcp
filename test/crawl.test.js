@@ -10,16 +10,21 @@ function createFetchStub(responses) {
     if (!response) {
       throw new Error(`Unexpected fetch: ${url}`);
     }
+    const headers = {
+      "content-type": response.contentType || "text/html",
+      ...(response.headers || {}),
+    };
     return {
       ok: response.status >= 200 && response.status < 300,
       status: response.status,
       headers: {
         get: (name) => {
           const key = name.toLowerCase();
-          return response.headers?.[key] ?? null;
+          return headers[key] ?? null;
         },
       },
       text: async () => response.body || "",
+      arrayBuffer: async () => new TextEncoder().encode(response.body || ""),
     };
   };
   return { fetchImpl, getCalls: () => calls };
@@ -57,8 +62,9 @@ test("only-new reuses existing page without fetching", async () => {
       return {
         ok: true,
         status: 200,
-        headers: { get: () => null },
+        headers: { get: () => "text/html" },
         text: async () => "<h1>Second</h1>",
+        arrayBuffer: async () => new TextEncoder().encode("<h1>Second</h1>"),
       };
     }
     throw new Error(`Unexpected fetch: ${url}`);
@@ -153,17 +159,22 @@ test("304 without links triggers refetch", async () => {
             if (key === "last-modified") {
               return "Mon, 01 Jan 2024 00:00:00 GMT";
             }
+            if (key === "content-type") {
+              return "text/html";
+            }
             return null;
           },
         },
         text: async () => "",
+        arrayBuffer: async () => new TextEncoder().encode(""),
       };
     }
     return {
       ok: true,
       status: 200,
-      headers: { get: () => null },
+      headers: { get: () => "text/html" },
       text: async () => "<h1>New</h1><p>Updated</p>",
+      arrayBuffer: async () => new TextEncoder().encode("<h1>New</h1><p>Updated</p>"),
     };
   };
 
