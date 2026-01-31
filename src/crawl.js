@@ -1,5 +1,10 @@
 import { pathToFileURL } from "node:url";
-import { baseUrl, maxPages, requestTimeoutMs, userAgent } from "./config.js";
+import {
+  baseUrl,
+  maxPagesPerSession,
+  requestTimeoutMs,
+  userAgent,
+} from "./config.js";
 import { extractHeadings, extractLinks, extractText, extractTitle } from "./html.js";
 import { buildIndex } from "./indexer.js";
 import { loadPages, saveIndex, savePages } from "./storage.js";
@@ -89,6 +94,7 @@ async function runCrawl(options = {}) {
     forceFetch = false,
     onlyNew = false,
     baseUrlOverride,
+    maxPagesPerSessionOverride,
     maxPagesOverride,
     fetchImpl,
     loadPagesImpl,
@@ -105,8 +111,23 @@ async function runCrawl(options = {}) {
   let reusedCount = 0;
   let fetchedCount = 0;
 
-  const pageLimit = maxPagesOverride || maxPages;
-  while (queue.length > 0 && pages.length < pageLimit) {
+  const sessionLimit =
+    maxPagesPerSessionOverride ??
+    (Number.isFinite(maxPagesPerSession) ? maxPagesPerSession : 0);
+  const effectiveSessionLimit = sessionLimit > 0 ? sessionLimit : Infinity;
+  const sessionLimitLabel = Number.isFinite(effectiveSessionLimit)
+    ? effectiveSessionLimit
+    : "∞";
+  const totalLimit =
+    Number.isFinite(maxPagesOverride) && maxPagesOverride > 0
+      ? maxPagesOverride
+      : Infinity;
+  const totalLimitLabel = Number.isFinite(totalLimit) ? totalLimit : "∞";
+  while (
+    queue.length > 0 &&
+    pages.length < totalLimit &&
+    fetchedCount < effectiveSessionLimit
+  ) {
     const current = queue.shift();
     if (!current || visited.has(current)) {
       continue;
@@ -196,7 +217,9 @@ async function runCrawl(options = {}) {
       }
     }
 
-    logger.log(`[crawl] ${pages.length}/${pageLimit} ${current}`);
+    logger.log(
+      `[crawl] ${pages.length}/${totalLimitLabel} ${current} (fetched ${fetchedCount}/${sessionLimitLabel})`
+    );
   }
 
   const index = buildIndex(pages);
