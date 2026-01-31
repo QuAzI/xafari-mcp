@@ -26,7 +26,7 @@ function parseArgs(argv) {
   const args = new Set(argv);
   return {
     forceFetch: args.has("--force"),
-    onlyNew: args.has("--only-new"),
+    onlyNew: args.has("--only-new") || !args.has("--no-only-new"),
   };
 }
 
