@@ -19,6 +19,7 @@ MCP‑сервер и краулер для документации Xafari. О�
 
 - `XAFARI_DOCS_BASE_URL` (по умолчанию: `https://documentation.galaktika-soft.com/xafari/`)
 - `XAFARI_MAX_PAGES_PER_SESSION` (по умолчанию: `1000`)
+- `XAFARI_FETCH_ON_MISS` (по умолчанию: `true`)
 - `XAFARI_DATA_DIR` (по умолчанию: `./data`)
 - `XAFARI_REQUEST_TIMEOUT_MS` (по умолчанию: `15000`)
 - `XAFARI_USER_AGENT`

@@ -1,5 +1,28 @@
-import { loadIndex, loadPages, getIndexPath, getPagesPath } from "./storage.js";
+import {
+  loadIndex,
+  loadPages,
+  loadPagesFromMarkdown,
+  saveIndex,
+  savePageMarkdown,
+  savePages,
+  getIndexPath,
+  getPagesPath,
+} from "./storage.js";
 import { searchIndex } from "./search.js";
+import { buildIndex } from "./indexer.js";
+import {
+  baseUrl,
+  fetchOnMiss,
+  requestTimeoutMs,
+  userAgent,
+} from "./config.js";
+import {
+  extractBreadcrumbs,
+  extractHeadings,
+  extractLinks,
+  extractText,
+  extractTitle,
+} from "./html.js";
 
 const SERVER_INFO = {
   name: "xafari-mcp",
@@ -62,6 +85,28 @@ let pagesCache = null;
 let indexCache = null;
 let pageBySlug = null;
 let pageByUrl = null;
+
+async function fetchHtml(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": userAgent,
+        "Accept-Language": "ru,en;q=0.8",
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} for ${url}`);
+    }
+
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 async function loadData() {
   if (pagesCache && indexCache) {
@@ -132,6 +177,57 @@ function resolvePage(slug) {
   return pageBySlug?.get(trimmed.replace(/^\/+/, "")) || null;
 }
 
+function resolvePageUrl(slug) {
+  const trimmed = slug.trim();
+  if (trimmed.startsWith("http")) {
+    return trimmed.split("#")[0];
+  }
+  const safeSlug = trimmed.replace(/^\/+/, "");
+  return new URL(safeSlug, baseUrl).toString();
+}
+
+async function fetchAndCachePage(slug) {
+  const url = resolvePageUrl(slug);
+  const html = await fetchHtml(url);
+  const title = extractTitle(html) || url;
+  const breadcrumbs = extractBreadcrumbs(html);
+  const headings = extractHeadings(html);
+  const { text, codeBlocks } = extractText(html);
+  const links = extractLinks(html);
+  const urlObj = new URL(url);
+  const slugValue = urlObj.pathname.startsWith(new URL(baseUrl).pathname)
+    ? urlObj.pathname.slice(new URL(baseUrl).pathname.length) || "index"
+    : urlObj.pathname.replace(/^\/+/, "") || "index";
+
+  const page = {
+    slug: slugValue,
+    url,
+    title,
+    breadcrumbs,
+    headings,
+    text,
+    codeBlocks,
+    links,
+    etag: null,
+    lastModified: null,
+    updatedAt: new Date().toISOString(),
+    lastCheckedAt: new Date().toISOString(),
+  };
+
+  await savePageMarkdown(page);
+  const pages = await loadPagesFromMarkdown();
+  const index = buildIndex(pages);
+  await savePages(pages);
+  await saveIndex(index);
+
+  pagesCache = pages;
+  indexCache = index;
+  pageBySlug = new Map(pages.map((item) => [item.slug, item]));
+  pageByUrl = new Map(pages.map((item) => [item.url, item]));
+
+  return page;
+}
+
 async function handleToolCall(name, args) {
   const { pages, index } = await loadData();
 
@@ -144,9 +240,18 @@ async function handleToolCall(name, args) {
   if (name === "get_page") {
     const page = resolvePage(args.slug);
     if (!page) {
-      return toolResult(`Page not found for slug: ${args.slug}`, {
-        isError: true,
-      });
+      if (fetchOnMiss) {
+        try {
+          const fetched = await fetchAndCachePage(args.slug);
+          return toolResult(JSON.stringify(fetched, null, 2));
+        } catch (error) {
+          return toolResult(
+            `Page not found and fetch failed for slug: ${args.slug}. ${error.message}`,
+            { isError: true }
+          );
+        }
+      }
+      return toolResult(`Page not found for slug: ${args.slug}`, { isError: true });
     }
     return toolResult(JSON.stringify(page, null, 2));
   }

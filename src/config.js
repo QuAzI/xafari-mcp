@@ -16,6 +16,8 @@ const maxPagesPerSession = Number.parseInt(
   process.env.XAFARI_MAX_PAGES_PER_SESSION || "1000",
   10
 );
+const fetchOnMiss =
+  (process.env.XAFARI_FETCH_ON_MISS || "true").toLowerCase() !== "false";
 const requestTimeoutMs = Number.parseInt(
   process.env.XAFARI_REQUEST_TIMEOUT_MS || "15000",
   10
@@ -24,4 +26,11 @@ const userAgent =
   process.env.XAFARI_USER_AGENT ||
   "xafari-mcp-crawler/0.1 (+https://galaktika-soft.com/xafari)";
 
-export { baseUrl, dataDir, maxPagesPerSession, requestTimeoutMs, userAgent };
+export {
+  baseUrl,
+  dataDir,
+  maxPagesPerSession,
+  fetchOnMiss,
+  requestTimeoutMs,
+  userAgent,
+};
