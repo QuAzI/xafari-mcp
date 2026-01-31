@@ -1,25 +1,25 @@
 # Xafari MCP
 
-MCP server and crawler for Xafari documentation. It crawls the official docs,
-extracts clean text and code samples, builds a lightweight index, and exposes
-tools for search and explanations.
+MCP‑сервер и краулер для документации Xafari. Он скачивает официальные страницы,
+извлекает чистый текст и примеры кода, строит легковесный индекс и предоставляет
+инструменты для поиска и объяснений.
 
-## Quick start
+## Быстрый старт
 
-1. Crawl and build the local index:
+1. Запустить краулер и собрать локальный индекс:
    - `npm run crawl`
-2. Start the MCP server (stdio):
+2. Запустить MCP‑сервер (stdio):
    - `npm run start`
 
-## Environment
+## Переменные окружения
 
-- `XAFARI_DOCS_BASE_URL` (default: `https://documentation.galaktika-soft.com/xafari/`)
-- `XAFARI_MAX_PAGES` (default: `300`)
-- `XAFARI_DATA_DIR` (default: `./data`)
-- `XAFARI_REQUEST_TIMEOUT_MS` (default: `15000`)
+- `XAFARI_DOCS_BASE_URL` (по умолчанию: `https://documentation.galaktika-soft.com/xafari/`)
+- `XAFARI_MAX_PAGES` (по умолчанию: `300`)
+- `XAFARI_DATA_DIR` (по умолчанию: `./data`)
+- `XAFARI_REQUEST_TIMEOUT_MS` (по умолчанию: `15000`)
 - `XAFARI_USER_AGENT`
 
-## MCP tools
+## MCP‑инструменты
 
 - `search_docs(query, limit?)`
 - `get_page(slug)`
