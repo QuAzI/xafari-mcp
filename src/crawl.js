@@ -1,7 +1,16 @@
+import { pathToFileURL } from "node:url";
 import { baseUrl, maxPages, requestTimeoutMs, userAgent } from "./config.js";
 import { extractHeadings, extractLinks, extractText, extractTitle } from "./html.js";
 import { buildIndex } from "./indexer.js";
 import { loadPages, saveIndex, savePages } from "./storage.js";
+
+function parseArgs(argv) {
+  const args = new Set(argv);
+  return {
+    forceFetch: args.has("--force"),
+    onlyNew: args.has("--only-new"),
+  };
+}
 
 function normalizeUrl(value) {
   try {
@@ -29,12 +38,12 @@ function toSlug(url, rootUrl) {
   return slug || "index";
 }
 
-async function fetchHtml(url, extraHeaders = {}) {
+async function fetchHtml(url, extraHeaders = {}, fetchImpl = fetch) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchImpl(url, {
       headers: {
         "User-Agent": userAgent,
         "Accept-Language": "ru,en;q=0.8",
@@ -66,26 +75,38 @@ async function fetchHtml(url, extraHeaders = {}) {
   }
 }
 
-async function loadExistingPages() {
+async function loadExistingPages(loadPagesImpl = loadPages) {
   try {
-    const pages = await loadPages();
+    const pages = await loadPagesImpl();
     return Array.isArray(pages) ? pages : [];
   } catch {
     return [];
   }
 }
 
-async function crawl() {
-  const rootUrl = new URL(baseUrl);
+async function runCrawl(options = {}) {
+  const {
+    forceFetch = false,
+    onlyNew = false,
+    baseUrlOverride,
+    maxPagesOverride,
+    fetchImpl,
+    loadPagesImpl,
+    savePagesImpl,
+    saveIndexImpl,
+    logger = console,
+  } = options;
+  const rootUrl = new URL(baseUrlOverride || baseUrl);
   const queue = [rootUrl.toString()];
   const visited = new Set();
-  const existingPages = await loadExistingPages();
+  const existingPages = await loadExistingPages(loadPagesImpl);
   const existingByUrl = new Map(existingPages.map((page) => [page.url, page]));
   const pages = [];
   let reusedCount = 0;
   let fetchedCount = 0;
 
-  while (queue.length > 0 && pages.length < maxPages) {
+  const pageLimit = maxPagesOverride || maxPages;
+  while (queue.length > 0 && pages.length < pageLimit) {
     const current = queue.shift();
     if (!current || visited.has(current)) {
       continue;
@@ -96,19 +117,25 @@ async function crawl() {
     let html;
     const existing = existingByUrl.get(current);
     const conditionalHeaders = {};
-    if (existing?.etag) {
-      conditionalHeaders["If-None-Match"] = existing.etag;
-    }
-    if (existing?.lastModified) {
-      conditionalHeaders["If-Modified-Since"] = existing.lastModified;
+    if (!forceFetch) {
+      if (existing?.etag) {
+        conditionalHeaders["If-None-Match"] = existing.etag;
+      }
+      if (existing?.lastModified) {
+        conditionalHeaders["If-Modified-Since"] = existing.lastModified;
+      }
     }
     try {
-      response = await fetchHtml(current, conditionalHeaders);
+      if (!forceFetch && onlyNew && existing && existing.links?.length) {
+        response = { status: 304, etag: existing.etag, lastModified: existing.lastModified };
+      } else {
+        response = await fetchHtml(current, conditionalHeaders, fetchImpl);
+      }
       if (response.status === 304 && (!existing?.links || existing.links.length === 0)) {
-        response = await fetchHtml(current);
+        response = await fetchHtml(current, {}, fetchImpl);
       }
     } catch (error) {
-      console.warn(`[crawl] skip ${current}: ${error.message}`);
+      logger.warn(`[crawl] skip ${current}: ${error.message}`);
       continue;
     }
 
@@ -169,19 +196,40 @@ async function crawl() {
       }
     }
 
-    console.log(`[crawl] ${pages.length}/${maxPages} ${current}`);
+    logger.log(`[crawl] ${pages.length}/${pageLimit} ${current}`);
   }
 
   const index = buildIndex(pages);
-  await savePages(pages);
-  await saveIndex(index);
+  if (savePagesImpl) {
+    await savePagesImpl(pages);
+  } else {
+    await savePages(pages);
+  }
+  if (saveIndexImpl) {
+    await saveIndexImpl(index);
+  } else {
+    await saveIndex(index);
+  }
 
-  console.log(
+  logger.log(
     `[crawl] saved ${pages.length} pages (fetched ${fetchedCount}, reused ${reusedCount})`
   );
+  return { pages, index, fetchedCount, reusedCount };
 }
 
-crawl().catch((error) => {
-  console.error(`[crawl] failed: ${error.message}`);
-  process.exitCode = 1;
-});
+function isMainModule() {
+  if (!process.argv[1]) {
+    return false;
+  }
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+if (isMainModule()) {
+  const { forceFetch, onlyNew } = parseArgs(process.argv.slice(2));
+  runCrawl({ forceFetch, onlyNew }).catch((error) => {
+    console.error(`[crawl] failed: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+export { runCrawl, parseArgs };
