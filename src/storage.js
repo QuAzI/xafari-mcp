@@ -34,22 +34,69 @@ function slugToMarkdownPath(slug, breadcrumbs = [], baseDir) {
   return path.join(dirPath, `${safePath}.md`);
 }
 
+function cleanMarkdown(text) {
+  if (!text) {
+    return "";
+  }
+  let output = text
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  output = output
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n");
+
+  return `${output}\n`;
+}
+
+function yamlEscape(value) {
+  if (value === null || value === undefined) {
+    return "null";
+  }
+  const str = String(value);
+  if (str === "" || /[:#\-\n]/.test(str)) {
+    return JSON.stringify(str);
+  }
+  return str;
+}
+
+function serializeYaml(metadata) {
+  const lines = [];
+  for (const [key, value] of Object.entries(metadata)) {
+    if (Array.isArray(value)) {
+      lines.push(`${key}:`);
+      if (value.length === 0) {
+        lines.push("  []");
+      } else {
+        for (const item of value) {
+          lines.push(`  - ${yamlEscape(item)}`);
+        }
+      }
+      continue;
+    }
+    lines.push(`${key}: ${yamlEscape(value)}`);
+  }
+  return lines.join("\n");
+}
+
 function serializePageMarkdown(page) {
   const metadata = {
     slug: page.slug,
     url: page.url,
     title: page.title,
     breadcrumbs: page.breadcrumbs || [],
-    headings: page.headings || [],
     links: page.links || [],
     etag: page.etag || null,
     lastModified: page.lastModified || null,
     updatedAt: page.updatedAt || null,
     lastCheckedAt: page.lastCheckedAt || null,
   };
-  const header = `---\n${JSON.stringify(metadata)}\n---\n`;
-  const body = page.text || "";
-  return `${header}${body}\n`;
+  const header = `---\n${serializeYaml(metadata)}\n---\n`;
+  const body = cleanMarkdown(page.text || "");
+  return `${header}${body}`;
 }
 
 function extractCodeBlocks(markdown) {
@@ -86,6 +133,44 @@ function extractMarkdownLinks(markdown) {
   return links;
 }
 
+function parseYamlFrontMatter(raw) {
+  const metadata = {};
+  const lines = raw.split(/\r?\n/);
+  let currentKey = null;
+  for (const line of lines) {
+    if (!line.trim()) {
+      continue;
+    }
+    const listMatch = line.match(/^\s*-\s+(.*)$/);
+    if (listMatch && currentKey) {
+      if (!Array.isArray(metadata[currentKey])) {
+        metadata[currentKey] = [];
+      }
+      metadata[currentKey].push(listMatch[1].replace(/^"|"$/g, ""));
+      continue;
+    }
+    const kvMatch = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
+    if (kvMatch) {
+      const key = kvMatch[1];
+      let value = kvMatch[2];
+      if (value === "") {
+        currentKey = key;
+        metadata[currentKey] = [];
+        continue;
+      }
+      currentKey = null;
+      if (value === "null") {
+        metadata[key] = null;
+      } else if (value === "[]") {
+        metadata[key] = [];
+      } else {
+        metadata[key] = value.replace(/^"|"$/g, "");
+      }
+    }
+  }
+  return metadata;
+}
+
 function parseMarkdownPage(content, filePath, baseDir) {
   const pagesDir = resolvePagesDir(baseDir);
   const headerRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
@@ -93,11 +178,7 @@ function parseMarkdownPage(content, filePath, baseDir) {
   let metadata = {};
   let body = content;
   if (match) {
-    try {
-      metadata = JSON.parse(match[1]);
-    } catch {
-      metadata = {};
-    }
+    metadata = parseYamlFrontMatter(match[1]);
     body = content.slice(match[0].length);
   }
 
@@ -113,9 +194,19 @@ function parseMarkdownPage(content, filePath, baseDir) {
     .filter(Boolean);
 
   const text = body.trim();
-  const headings = Array.isArray(metadata.headings) && metadata.headings.length
-    ? metadata.headings
-    : extractMarkdownHeadings(text);
+  const headingsFromMeta =
+    Array.isArray(metadata.headings) &&
+    metadata.headings.length > 0 &&
+    metadata.headings.every(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        typeof item.level === "number" &&
+        typeof item.text === "string"
+    )
+      ? metadata.headings
+      : null;
+  const headings = headingsFromMeta || extractMarkdownHeadings(text);
   const links = Array.isArray(metadata.links) && metadata.links.length
     ? metadata.links
     : extractMarkdownLinks(text);
