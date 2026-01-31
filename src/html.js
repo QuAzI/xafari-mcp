@@ -96,7 +96,71 @@ function extractBreadcrumbs(html) {
       unique.push(item);
     }
   }
-  return unique;
+  if (unique.length > 0) {
+    return unique;
+  }
+
+  const h1Match = html.match(/<h1[^>]*>/i);
+  const h1Index = h1Match ? h1Match.index : -1;
+  const windowStart = h1Index > -1 ? Math.max(0, h1Index - 6000) : 0;
+  const windowEnd = h1Index > -1 ? h1Index : html.length;
+  const windowHtml = html.slice(windowStart, windowEnd);
+  const matches = [];
+  const linkRegex =
+    /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let linkMatch = linkRegex.exec(windowHtml);
+  while (linkMatch) {
+    const href = linkMatch[1].toLowerCase();
+    if (href.includes("doc_") || href.includes("doc%5f")) {
+      const text = decodeHtml(stripTags(linkMatch[2])).trim();
+      if (text) {
+        matches.push({ text, index: linkMatch.index });
+      }
+    }
+    linkMatch = linkRegex.exec(windowHtml);
+  }
+
+  if (matches.length === 0) {
+    return [];
+  }
+
+  const groups = [];
+  let current = [];
+  let previousIndex = null;
+  for (const match of matches) {
+    if (previousIndex !== null && match.index - previousIndex > 400) {
+      groups.push(current);
+      current = [];
+    }
+    current.push(match.text);
+    previousIndex = match.index;
+  }
+  if (current.length > 0) {
+    groups.push(current);
+  }
+
+  let lastGroup = groups[groups.length - 1] || [];
+  const navBlacklist = new Set(
+    [
+      "home",
+      "general information",
+      "what's new in help",
+      "general components",
+      "business components",
+    ].map((item) => item.toLowerCase())
+  );
+  lastGroup = lastGroup.filter(
+    (item) => !navBlacklist.has(item.toLowerCase())
+  );
+  const heuristicUnique = [];
+  const heuristicSeen = new Set();
+  for (const item of lastGroup) {
+    if (!heuristicSeen.has(item)) {
+      heuristicSeen.add(item);
+      heuristicUnique.push(item);
+    }
+  }
+  return heuristicUnique;
 }
 
 function extractTitle(html) {

@@ -52,3 +52,26 @@ test("extractBreadcrumbs collects unique crumb labels", () => {
     "Getting Started",
   ]);
 });
+
+test("extractBreadcrumbs falls back to doc_ links near h1", () => {
+  const html = `
+    <div class="nav">
+      <a href="/xafari/doc_home_page">Home</a>
+      <a href="/xafari/doc_general_purpose">General Components</a>
+    </div>
+    <div class="path">
+      <a href="/xafari/doc_enterprise_solutions">ERP Components</a>
+      <a href="/xafari/doc_mvc">Xafari ASP.NET MVC</a>
+      <a href="/xafari/doc_mvc_getting_started">Getting Started</a>
+      <a href="/xafari/doc_mvc_migration_from_webforms_to_mvc">Migration from WebForms to MVC</a>
+    </div>
+    <h1>Migration from WebForms to Xafari MVC</h1>
+  `;
+
+  assert.deepEqual(extractBreadcrumbs(html), [
+    "ERP Components",
+    "Xafari ASP.NET MVC",
+    "Getting Started",
+    "Migration from WebForms to MVC",
+  ]);
+});
