@@ -1,7 +1,7 @@
 import { baseUrl, maxPages, requestTimeoutMs, userAgent } from "./config.js";
 import { extractHeadings, extractLinks, extractText, extractTitle } from "./html.js";
 import { buildIndex } from "./indexer.js";
-import { saveIndex, savePages } from "./storage.js";
+import { loadPages, saveIndex, savePages } from "./storage.js";
 
 function normalizeUrl(value) {
   try {
@@ -29,7 +29,7 @@ function toSlug(url, rootUrl) {
   return slug || "index";
 }
 
-async function fetchHtml(url) {
+async function fetchHtml(url, extraHeaders = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -38,17 +38,40 @@ async function fetchHtml(url) {
       headers: {
         "User-Agent": userAgent,
         "Accept-Language": "ru,en;q=0.8",
+        ...extraHeaders,
       },
       signal: controller.signal,
     });
+
+    if (response.status === 304) {
+      return {
+        status: 304,
+        etag: response.headers.get("etag"),
+        lastModified: response.headers.get("last-modified"),
+      };
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} for ${url}`);
     }
 
-    return await response.text();
+    return {
+      status: response.status,
+      html: await response.text(),
+      etag: response.headers.get("etag"),
+      lastModified: response.headers.get("last-modified"),
+    };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function loadExistingPages() {
+  try {
+    const pages = await loadPages();
+    return Array.isArray(pages) ? pages : [];
+  } catch {
+    return [];
   }
 }
 
@@ -56,7 +79,11 @@ async function crawl() {
   const rootUrl = new URL(baseUrl);
   const queue = [rootUrl.toString()];
   const visited = new Set();
+  const existingPages = await loadExistingPages();
+  const existingByUrl = new Map(existingPages.map((page) => [page.url, page]));
   const pages = [];
+  let reusedCount = 0;
+  let fetchedCount = 0;
 
   while (queue.length > 0 && pages.length < maxPages) {
     const current = queue.shift();
@@ -65,30 +92,60 @@ async function crawl() {
     }
     visited.add(current);
 
+    let response;
     let html;
+    const existing = existingByUrl.get(current);
+    const conditionalHeaders = {};
+    if (existing?.etag) {
+      conditionalHeaders["If-None-Match"] = existing.etag;
+    }
+    if (existing?.lastModified) {
+      conditionalHeaders["If-Modified-Since"] = existing.lastModified;
+    }
     try {
-      html = await fetchHtml(current);
+      response = await fetchHtml(current, conditionalHeaders);
+      if (response.status === 304 && (!existing?.links || existing.links.length === 0)) {
+        response = await fetchHtml(current);
+      }
     } catch (error) {
       console.warn(`[crawl] skip ${current}: ${error.message}`);
       continue;
     }
 
-    const title = extractTitle(html) || current;
-    const headings = extractHeadings(html);
-    const { text, codeBlocks } = extractText(html);
-    const urlObj = new URL(current);
+    let links = [];
+    if (response.status === 304 && existing) {
+      pages.push({
+        ...existing,
+        etag: response.etag ?? existing.etag ?? null,
+        lastModified: response.lastModified ?? existing.lastModified ?? null,
+        lastCheckedAt: new Date().toISOString(),
+      });
+      links = existing.links || [];
+      reusedCount += 1;
+    } else {
+      html = response.html;
+      const title = extractTitle(html) || current;
+      const headings = extractHeadings(html);
+      const { text, codeBlocks } = extractText(html);
+      const urlObj = new URL(current);
+      links = extractLinks(html);
 
-    pages.push({
-      slug: toSlug(urlObj, rootUrl),
-      url: current,
-      title,
-      headings,
-      text,
-      codeBlocks,
-      updatedAt: new Date().toISOString(),
-    });
+      pages.push({
+        slug: toSlug(urlObj, rootUrl),
+        url: current,
+        title,
+        headings,
+        text,
+        codeBlocks,
+        links,
+        etag: response.etag || null,
+        lastModified: response.lastModified || null,
+        updatedAt: new Date().toISOString(),
+        lastCheckedAt: new Date().toISOString(),
+      });
+      fetchedCount += 1;
+    }
 
-    const links = extractLinks(html);
     for (const link of links) {
       if (!link || link.startsWith("#")) {
         continue;
@@ -119,7 +176,9 @@ async function crawl() {
   await savePages(pages);
   await saveIndex(index);
 
-  console.log(`[crawl] saved ${pages.length} pages`);
+  console.log(
+    `[crawl] saved ${pages.length} pages (fetched ${fetchedCount}, reused ${reusedCount})`
+  );
 }
 
 crawl().catch((error) => {
