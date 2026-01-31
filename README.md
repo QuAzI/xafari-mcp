@@ -25,3 +25,21 @@ MCP‑сервер и краулер для документации Xafari. О�
 - `get_page(slug)`
 - `get_examples(topic, limit?)`
 - `explain_concept(name)`
+
+## Примеры запросов
+
+- `search_docs`: "Как работает модуль Performance Enhancement?"
+- `search_docs`: "подключение к DevExpress XAF"
+- `get_page`: `getting-started/` или `https://documentation.galaktika-soft.com/xafari/getting-started/`
+- `get_examples`: "Business Components"
+- `explain_concept`: "Security System"
+
+## Подключение MCP в Cursor
+
+1. Откройте настройки MCP в Cursor.
+2. Добавьте новый сервер со следующими параметрами:
+   - `name`: `xafari-mcp`
+   - `command`: `node`
+   - `args`: `["C:\\Projects\\xafari-mcp\\src\\index.js"]`
+   - `cwd`: `C:\\Projects\\xafari-mcp`
+3. Перезапустите MCP‑сервер в Cursor.
