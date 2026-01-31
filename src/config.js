@@ -18,6 +18,7 @@ const maxPagesPerSession = Number.parseInt(
 );
 const fetchOnMiss =
   (process.env.XAFARI_FETCH_ON_MISS || "true").toLowerCase() !== "false";
+const logFile = process.env.XAFARI_LOG_FILE || "logs/xafari-mcp.jsonl";
 const requestTimeoutMs = Number.parseInt(
   process.env.XAFARI_REQUEST_TIMEOUT_MS || "15000",
   10
@@ -31,6 +32,7 @@ export {
   dataDir,
   maxPagesPerSession,
   fetchOnMiss,
+  logFile,
   requestTimeoutMs,
   userAgent,
 };

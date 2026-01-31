@@ -13,6 +13,7 @@ import { buildIndex } from "./indexer.js";
 import {
   baseUrl,
   fetchOnMiss,
+  logFile,
   requestTimeoutMs,
   userAgent,
 } from "./config.js";
@@ -23,6 +24,7 @@ import {
   extractText,
   extractTitle,
 } from "./html.js";
+import { createLogger } from "./logger.js";
 
 const SERVER_INFO = {
   name: "xafari-mcp",
@@ -85,6 +87,7 @@ let pagesCache = null;
 let indexCache = null;
 let pageBySlug = null;
 let pageByUrl = null;
+const logger = createLogger({ component: "server", logPath: logFile });
 
 async function fetchHtml(url) {
   const controller = new AbortController();
@@ -188,6 +191,7 @@ function resolvePageUrl(slug) {
 
 async function fetchAndCachePage(slug) {
   const url = resolvePageUrl(slug);
+  logger.log("get_page.fetch_on_miss.start", { slug, url });
   const html = await fetchHtml(url);
   const title = extractTitle(html) || url;
   const breadcrumbs = extractBreadcrumbs(html);
@@ -225,11 +229,13 @@ async function fetchAndCachePage(slug) {
   pageBySlug = new Map(pages.map((item) => [item.slug, item]));
   pageByUrl = new Map(pages.map((item) => [item.url, item]));
 
+  logger.log("get_page.fetch_on_miss.saved", { slug: page.slug, url: page.url });
   return page;
 }
 
 async function handleToolCall(name, args) {
   const { pages, index } = await loadData();
+  logger.log("tools.call", { name, args });
 
   if (name === "search_docs") {
     const limit = Number.isFinite(args?.limit) ? args.limit : 5;
@@ -245,6 +251,10 @@ async function handleToolCall(name, args) {
           const fetched = await fetchAndCachePage(args.slug);
           return toolResult(JSON.stringify(fetched, null, 2));
         } catch (error) {
+          logger.warn("get_page.fetch_on_miss.failed", {
+            slug: args.slug,
+            error: error.message,
+          });
           return toolResult(
             `Page not found and fetch failed for slug: ${args.slug}. ${error.message}`,
             { isError: true }

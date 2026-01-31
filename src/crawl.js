@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 import {
   baseUrl,
   maxPagesPerSession,
+  logFile,
   requestTimeoutMs,
   userAgent,
 } from "./config.js";
@@ -19,6 +20,7 @@ import {
   savePageMarkdown,
   savePages,
 } from "./storage.js";
+import { createLogger } from "./logger.js";
 
 function parseArgs(argv) {
   const args = new Set(argv);
@@ -113,7 +115,7 @@ async function runCrawl(options = {}) {
     loadPagesForIndexImpl,
     savePagesImpl,
     saveIndexImpl,
-    logger = console,
+    logger = createLogger({ component: "crawler", logPath: logFile }),
   } = options;
   const rootUrl = new URL(baseUrlOverride || baseUrl);
   const queue = [rootUrl.toString()];
@@ -136,6 +138,11 @@ async function runCrawl(options = {}) {
       ? maxPagesOverride
       : Infinity;
   const totalLimitLabel = Number.isFinite(totalLimit) ? totalLimit : "∞";
+  logger.log("crawl.start", {
+    baseUrl: rootUrl.toString(),
+    sessionLimit: sessionLimitLabel,
+    totalLimit: totalLimitLabel,
+  });
   while (
     queue.length > 0 &&
     pages.length < totalLimit &&
@@ -169,7 +176,7 @@ async function runCrawl(options = {}) {
         response = await fetchHtml(current, {}, fetchImpl);
       }
     } catch (error) {
-      logger.warn(`[crawl] skip ${current}: ${error.message}`);
+      logger.warn("crawl.skip", { url: current, error: error.message });
       continue;
     }
 
@@ -244,9 +251,13 @@ async function runCrawl(options = {}) {
       }
     }
 
-    logger.log(
-      `[crawl] ${pages.length}/${totalLimitLabel} ${current} (fetched ${fetchedCount}/${sessionLimitLabel})`
-    );
+    logger.log("crawl.progress", {
+      url: current,
+      total: pages.length,
+      totalLimit: totalLimitLabel,
+      fetched: fetchedCount,
+      fetchedLimit: sessionLimitLabel,
+    });
   }
 
   const pagesForIndex = loadPagesForIndexImpl
@@ -264,9 +275,11 @@ async function runCrawl(options = {}) {
     await saveIndex(index);
   }
 
-  logger.log(
-    `[crawl] saved ${pages.length} pages (fetched ${fetchedCount}, reused ${reusedCount})`
-  );
+  logger.log("crawl.saved", {
+    total: pages.length,
+    fetched: fetchedCount,
+    reused: reusedCount,
+  });
   return { pages, index, fetchedCount, reusedCount };
 }
 
