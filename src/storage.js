@@ -9,11 +9,19 @@ function resolvePagesDir(baseDir = dataDir) {
   return path.join(baseDir, "pages");
 }
 
+function resolveAssetsDir(baseDir = dataDir) {
+  return path.join(baseDir, "assets");
+}
+
 async function ensureDataDir() {
   await fs.mkdir(dataDir, { recursive: true });
 }
 
 async function ensurePagesDir(dirPath = pagesDir) {
+  await fs.mkdir(dirPath, { recursive: true });
+}
+
+async function ensureAssetsDir(dirPath) {
   await fs.mkdir(dirPath, { recursive: true });
 }
 
@@ -273,6 +281,25 @@ async function loadPagesFromMarkdown(baseDir) {
   return pages;
 }
 
+function urlToAssetPath(url, baseDir, contentType = "") {
+  const assetsDir = resolveAssetsDir(baseDir);
+  const urlObj = new URL(url);
+  const pathname = urlObj.pathname.replace(/^\/+/, "");
+  const safePath = pathname.split("/").map(sanitizePathSegment).join(path.sep);
+  let filePath = path.join(assetsDir, safePath);
+  if (!path.extname(filePath) && contentType.includes("pdf")) {
+    filePath = `${filePath}.pdf`;
+  }
+  return filePath;
+}
+
+async function saveBinaryAsset(url, buffer, contentType, baseDir) {
+  const filePath = urlToAssetPath(url, baseDir, contentType);
+  await ensureAssetsDir(path.dirname(filePath));
+  await fs.writeFile(filePath, Buffer.from(buffer));
+  return filePath;
+}
+
 async function saveJson(filePath, value) {
   await ensureDataDir();
   await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
@@ -310,6 +337,7 @@ function getIndexPath() {
 export {
   savePageMarkdown,
   loadPagesFromMarkdown,
+  saveBinaryAsset,
   savePages,
   loadPages,
   saveIndex,

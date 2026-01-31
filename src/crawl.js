@@ -16,6 +16,7 @@ import {
 import { buildIndex } from "./indexer.js";
 import {
   loadPagesFromMarkdown,
+  saveBinaryAsset,
   saveIndex,
   savePageMarkdown,
   savePages,
@@ -40,6 +41,59 @@ function normalizeUrl(value) {
   }
 }
 
+function isBinaryPath(pathname) {
+  const lower = pathname.toLowerCase();
+  const binaryExtensions = [
+    ".zip",
+    ".7z",
+    ".rar",
+    ".tar",
+    ".gz",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".mp4",
+    ".mp3",
+    ".avi",
+    ".mov",
+    ".wmv",
+    ".exe",
+    ".msi",
+  ];
+  return binaryExtensions.some((ext) => lower.endsWith(ext));
+}
+
+function isDownloadableAsset(pathname) {
+  const lower = pathname.toLowerCase();
+  const assetExtensions = [
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+  ];
+  return assetExtensions.some((ext) => lower.endsWith(ext));
+}
+
+function isHtmlContentType(contentType) {
+  return (
+    contentType.includes("text/html") ||
+    contentType.includes("application/xhtml+xml")
+  );
+}
+
+function isAssetContentType(contentType) {
+  return (
+    contentType.includes("application/pdf") ||
+    contentType.startsWith("image/")
+  );
+}
+
 function isSameDomain(url, rootUrl) {
   return url.hostname === rootUrl.hostname;
 }
@@ -56,7 +110,7 @@ function toSlug(url, rootUrl) {
   return slug || "index";
 }
 
-async function fetchHtml(url, extraHeaders = {}, fetchImpl = fetch) {
+async function fetchResource(url, extraHeaders = {}, fetchImpl = fetch) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -82,12 +136,29 @@ async function fetchHtml(url, extraHeaders = {}, fetchImpl = fetch) {
       throw new Error(`HTTP ${response.status} for ${url}`);
     }
 
-    return {
-      status: response.status,
-      html: await response.text(),
-      etag: response.headers.get("etag"),
-      lastModified: response.headers.get("last-modified"),
-    };
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType && isHtmlContentType(contentType)) {
+      return {
+        status: response.status,
+        kind: "html",
+        html: await response.text(),
+        etag: response.headers.get("etag"),
+        lastModified: response.headers.get("last-modified"),
+        contentType,
+      };
+    }
+    if (contentType && isAssetContentType(contentType)) {
+      return {
+        status: response.status,
+        kind: "asset",
+        buffer: await response.arrayBuffer(),
+        etag: response.headers.get("etag"),
+        lastModified: response.headers.get("last-modified"),
+        contentType,
+      };
+    }
+
+    throw new Error(`Unsupported content type: ${contentType || "unknown"}`);
   } finally {
     clearTimeout(timeout);
   }
@@ -170,10 +241,10 @@ async function runCrawl(options = {}) {
       if (!forceFetch && onlyNew && existing && existing.links?.length) {
         response = { status: 304, etag: existing.etag, lastModified: existing.lastModified };
       } else {
-        response = await fetchHtml(current, conditionalHeaders, fetchImpl);
+        response = await fetchResource(current, conditionalHeaders, fetchImpl);
       }
       if (response.status === 304 && (!existing?.links || existing.links.length === 0)) {
-        response = await fetchHtml(current, {}, fetchImpl);
+        response = await fetchResource(current, {}, fetchImpl);
       }
     } catch (error) {
       logger.warn("crawl.skip", { url: current, error: error.message });
@@ -197,34 +268,39 @@ async function runCrawl(options = {}) {
         await savePageMarkdown(page);
       }
     } else {
-      html = response.html;
-      const title = extractTitle(html) || current;
-      const breadcrumbs = extractBreadcrumbs(html);
-      const headings = extractHeadings(html);
-      const { text, codeBlocks } = extractText(html);
-      const urlObj = new URL(current);
-      links = extractLinks(html);
-
-      const page = {
-        slug: toSlug(urlObj, rootUrl),
-        url: current,
-        title,
-        breadcrumbs,
-        headings,
-        text,
-        codeBlocks,
-        links,
-        etag: response.etag || null,
-        lastModified: response.lastModified || null,
-        updatedAt: new Date().toISOString(),
-        lastCheckedAt: new Date().toISOString(),
-      };
-      pages.push(page);
-      fetchedCount += 1;
-      if (savePageMarkdownImpl) {
-        await savePageMarkdownImpl(page);
+      if (response.kind === "asset") {
+        await saveBinaryAsset(current, response.buffer, response.contentType);
+        fetchedCount += 1;
       } else {
-        await savePageMarkdown(page);
+        html = response.html;
+        const title = extractTitle(html) || current;
+        const breadcrumbs = extractBreadcrumbs(html);
+        const headings = extractHeadings(html);
+        const { text, codeBlocks } = extractText(html);
+        const urlObj = new URL(current);
+        links = extractLinks(html);
+
+        const page = {
+          slug: toSlug(urlObj, rootUrl),
+          url: current,
+          title,
+          breadcrumbs,
+          headings,
+          text,
+          codeBlocks,
+          links,
+          etag: response.etag || null,
+          lastModified: response.lastModified || null,
+          updatedAt: new Date().toISOString(),
+          lastCheckedAt: new Date().toISOString(),
+        };
+        pages.push(page);
+        fetchedCount += 1;
+        if (savePageMarkdownImpl) {
+          await savePageMarkdownImpl(page);
+        } else {
+          await savePageMarkdown(page);
+        }
       }
     }
 
@@ -244,6 +320,9 @@ async function runCrawl(options = {}) {
         continue;
       }
       if (!isWithinBasePath(normalizedUrl, rootUrl)) {
+        continue;
+      }
+      if (isBinaryPath(normalizedUrl.pathname) && !isDownloadableAsset(normalizedUrl.pathname)) {
         continue;
       }
       if (!visited.has(normalized)) {

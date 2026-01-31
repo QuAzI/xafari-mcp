@@ -106,6 +106,15 @@ async function fetchHtml(url) {
       throw new Error(`HTTP ${response.status} for ${url}`);
     }
 
+    const contentType = response.headers.get("content-type") || "";
+    if (
+      contentType &&
+      !contentType.includes("text/html") &&
+      !contentType.includes("application/xhtml+xml")
+    ) {
+      throw new Error(`Unsupported content type: ${contentType}`);
+    }
+
     return await response.text();
   } finally {
     clearTimeout(timeout);
