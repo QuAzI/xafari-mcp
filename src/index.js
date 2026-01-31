@@ -17,6 +17,7 @@ import {
   logFile,
   requestTimeoutMs,
   userAgent,
+  codeLanguages,
 } from "./config.js";
 import {
   extractBreadcrumbs,
@@ -203,10 +204,14 @@ async function fetchAndCachePage(slug) {
   const url = resolvePageUrl(slug);
   logger.log("get_page.fetch_on_miss.start", { slug, url });
   const html = await fetchHtml(url);
+  const allowedLanguages =
+    codeLanguages && codeLanguages.length > 0
+      ? new Set(codeLanguages)
+      : null;
   const title = extractTitle(html) || url;
   const breadcrumbs = extractBreadcrumbs(html);
   const headings = extractHeadings(html);
-  const { text, codeBlocks } = extractText(html, url);
+  const { text, codeBlocks } = extractText(html, url, { allowedLanguages });
   const links = extractLinks(html);
   const urlObj = new URL(url);
   const slugValue = urlObj.pathname.startsWith(new URL(baseUrl).pathname)

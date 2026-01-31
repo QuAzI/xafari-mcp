@@ -5,6 +5,7 @@ import {
   logFile,
   requestTimeoutMs,
   userAgent,
+  codeLanguages,
 } from "./config.js";
 import {
   extractBreadcrumbs,
@@ -181,6 +182,7 @@ async function runCrawl(options = {}) {
     maxPagesPerSessionOverride,
     maxPagesOverride,
     fetchImpl,
+    allowedLanguagesOverride,
     loadPagesImpl,
     savePageMarkdownImpl,
     loadPagesForIndexImpl,
@@ -209,6 +211,11 @@ async function runCrawl(options = {}) {
       ? maxPagesOverride
       : Infinity;
   const totalLimitLabel = Number.isFinite(totalLimit) ? totalLimit : "∞";
+  const allowedLanguages =
+    allowedLanguagesOverride ||
+    (codeLanguages && codeLanguages.length > 0
+      ? new Set(codeLanguages)
+      : null);
   logger.log("crawl.start", {
     baseUrl: rootUrl.toString(),
     sessionLimit: sessionLimitLabel,
@@ -276,7 +283,9 @@ async function runCrawl(options = {}) {
         const title = extractTitle(html) || current;
         const breadcrumbs = extractBreadcrumbs(html);
         const headings = extractHeadings(html);
-        const { text, codeBlocks } = extractText(html, current);
+        const { text, codeBlocks } = extractText(html, current, {
+          allowedLanguages,
+        });
         const urlObj = new URL(current);
         links = extractLinks(html);
 

@@ -192,8 +192,14 @@ function normalizeLanguage(value) {
   if (lower === "vbnet") {
     return "vb";
   }
-  if (lower === "js") {
-    return "javascript";
+  if (lower === "js" || lower === "javascript") {
+    return "js";
+  }
+  if (lower === "ts" || lower === "typescript") {
+    return "ts";
+  }
+  if (lower === "yml") {
+    return "yaml";
   }
   return lower;
 }
@@ -338,6 +344,10 @@ function buildImageMarkdown(match, baseUrl) {
 }
 
 function convertLanguageLabels(text) {
+  return convertLanguageLabelsWithOptions(text);
+}
+
+function convertLanguageLabelsWithOptions(text, allowedLanguages) {
   const normalizedText = text
     .replace(/c#\s*VB/gi, "c#\nVB")
     .replace(/c#\s*public/gi, "c#\npublic")
@@ -346,6 +356,13 @@ function convertLanguageLabels(text) {
   const output = [];
   let currentLang = null;
   let buffer = [];
+
+  const isAllowed = (lang) => {
+    if (!allowedLanguages || allowedLanguages.size === 0) {
+      return true;
+    }
+    return allowedLanguages.has(lang);
+  };
 
   function flush() {
     if (!currentLang) {
@@ -388,7 +405,9 @@ function convertLanguageLabels(text) {
     const normalized = normalizeLanguage(label);
     if (normalized === "cs" || normalized === "vb") {
       flush();
-      currentLang = normalized;
+      if (isAllowed(normalized)) {
+        currentLang = normalized;
+      }
       continue;
     }
 
@@ -439,33 +458,53 @@ function splitMixedCodeSamples(code) {
 }
 
 function splitMixedFencedBlocks(text) {
+  return splitMixedFencedBlocksWithOptions(text);
+}
+
+function splitMixedFencedBlocksWithOptions(text, allowedLanguages) {
+  const isAllowed = (lang) => {
+    if (!allowedLanguages || allowedLanguages.size === 0) {
+      return true;
+    }
+    return allowedLanguages.has(lang);
+  };
   return text.replace(/```([a-z0-9]*)\n([\s\S]*?)```/gi, (match, lang, code) => {
     const mixed = splitMixedCodeSamples(code);
     if (!mixed) {
       return match;
     }
-    return [
-      `\`\`\`cs`,
-      mixed[0].code,
-      "```",
-      "",
-      "```vb",
-      mixed[1].code,
-      "```",
-    ].join("\n");
+    const parts = [];
+    if (isAllowed("cs")) {
+      parts.push("```cs", mixed[0].code, "```", "");
+    }
+    if (isAllowed("vb")) {
+      parts.push("```vb", mixed[1].code, "```");
+    }
+    return parts.join("\n");
   });
 }
 
-function normalizeFenceLanguages(text) {
+function normalizeFenceLanguages(text, allowedLanguages) {
+  const isAllowed = (lang) => {
+    if (!allowedLanguages || allowedLanguages.size === 0) {
+      return true;
+    }
+    return allowedLanguages.has(lang);
+  };
   return text.replace(/```([A-Za-z0-9#+-]+)/g, (_, lang) => {
     const normalized = normalizeLanguage(lang);
-    return `\`\`\`${normalized || lang.toLowerCase()}`;
+    const finalLang = normalized || lang.toLowerCase();
+    if (!isAllowed(finalLang)) {
+      return "";
+    }
+    return `\`\`\`${finalLang}`;
   });
 }
 
-function extractText(html, baseUrl) {
+function extractText(html, baseUrl, options = {}) {
   let working = removeScriptStyle(html);
   working = removeCommonNoise(working);
+  const allowedLanguages = options.allowedLanguages;
 
   const codeBlocks = [];
   working = extractCodeContentBlocks(working, codeBlocks);
@@ -564,12 +603,24 @@ function extractText(html, baseUrl) {
       return "";
     }
     const language = entry.language ? entry.language.toLowerCase() : "";
+    if (allowedLanguages && allowedLanguages.size > 0 && !allowedLanguages.has(language)) {
+      return "";
+    }
     return `\n\`\`\`${language}\n${entry.code}\n\`\`\`\n`;
   });
 
-  const normalizedText = splitMixedFencedBlocks(text.trim());
-  const labeledText = convertLanguageLabels(normalizedText);
-  return { text: normalizeFenceLanguages(labeledText), codeBlocks };
+  const normalizedText = splitMixedFencedBlocksWithOptions(
+    text.trim(),
+    allowedLanguages
+  );
+  const labeledText = convertLanguageLabelsWithOptions(
+    normalizedText,
+    allowedLanguages
+  );
+  return {
+    text: normalizeFenceLanguages(labeledText, allowedLanguages),
+    codeBlocks,
+  };
 }
 
 function sanitizeHtml(html) {

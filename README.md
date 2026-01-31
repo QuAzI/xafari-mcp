@@ -28,6 +28,7 @@ MCP‑сервер и краулер для документации Xafari. О�
 - `XAFARI_REQUEST_TIMEOUT_MS` (по умолчанию: `15000`)
 - `XAFARI_USER_AGENT`
 - `XAFARI_LOG_FILE` (по умолчанию: `logs/xafari-mcp.jsonl`)
+- `XAFARI_CODE_LANGUAGES` (по умолчанию: `cs,js,ts,json,yaml,xml,html,css`)
 
 ## Формат хранения
 
