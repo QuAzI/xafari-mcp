@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import {
   loadIndex,
   loadPages,
@@ -233,8 +234,9 @@ async function fetchAndCachePage(slug) {
   return page;
 }
 
-async function handleToolCall(name, args) {
-  const { pages, index } = await loadData();
+async function handleToolCall(name, args, options = {}) {
+  const { loadDataImpl, fetchOnMissOverride, fetchAndCachePageImpl } = options;
+  const { pages, index } = loadDataImpl ? await loadDataImpl() : await loadData();
   logger.log("tools.call", { name, args });
 
   if (name === "search_docs") {
@@ -246,9 +248,13 @@ async function handleToolCall(name, args) {
   if (name === "get_page") {
     const page = resolvePage(args.slug);
     if (!page) {
-      if (fetchOnMiss) {
+      const allowFetch =
+        typeof fetchOnMissOverride === "boolean" ? fetchOnMissOverride : fetchOnMiss;
+      if (allowFetch) {
         try {
-          const fetched = await fetchAndCachePage(args.slug);
+          const fetched = fetchAndCachePageImpl
+            ? await fetchAndCachePageImpl(args.slug)
+            : await fetchAndCachePage(args.slug);
           return toolResult(JSON.stringify(fetched, null, 2));
         } catch (error) {
           logger.warn("get_page.fetch_on_miss.failed", {
@@ -358,72 +364,87 @@ async function handleMessage(message) {
   }
 }
 
-let buffer = "";
-let pendingContentLength = null;
-process.stdin.setEncoding("utf8");
+function startServer() {
+  let buffer = "";
+  let pendingContentLength = null;
+  process.stdin.setEncoding("utf8");
 
-function emitParseError() {
-  const payload = {
-    jsonrpc: "2.0",
-    error: { code: -32700, message: "Parse error" },
-  };
-  process.stdout.write(`${JSON.stringify(payload)}\n`);
-}
+  function emitParseError() {
+    const payload = {
+      jsonrpc: "2.0",
+      error: { code: -32700, message: "Parse error" },
+    };
+    process.stdout.write(`${JSON.stringify(payload)}\n`);
+  }
 
-function processBuffer() {
-  while (buffer.length > 0) {
-    if (pendingContentLength !== null) {
-      if (buffer.length < pendingContentLength) {
+  function processBuffer() {
+    while (buffer.length > 0) {
+      if (pendingContentLength !== null) {
+        if (buffer.length < pendingContentLength) {
+          return;
+        }
+        const jsonPayload = buffer.slice(0, pendingContentLength);
+        buffer = buffer.slice(pendingContentLength);
+        pendingContentLength = null;
+        try {
+          const message = JSON.parse(jsonPayload);
+          handleMessage(message);
+        } catch {
+          emitParseError();
+        }
+        continue;
+      }
+
+      const headerEnd = buffer.indexOf("\r\n\r\n");
+      if (headerEnd >= 0 && buffer.slice(0, headerEnd).includes("Content-Length:")) {
+        const header = buffer.slice(0, headerEnd);
+        const match = header.match(/Content-Length:\s*(\d+)/i);
+        buffer = buffer.slice(headerEnd + 4);
+        if (!match) {
+          emitParseError();
+          continue;
+        }
+        pendingContentLength = Number.parseInt(match[1], 10);
+        continue;
+      }
+
+      const newlineIndex = buffer.indexOf("\n");
+      if (newlineIndex === -1) {
         return;
       }
-      const jsonPayload = buffer.slice(0, pendingContentLength);
-      buffer = buffer.slice(pendingContentLength);
-      pendingContentLength = null;
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (!line) {
+        continue;
+      }
       try {
-        const message = JSON.parse(jsonPayload);
+        const message = JSON.parse(line);
         handleMessage(message);
       } catch {
         emitParseError();
       }
-      continue;
-    }
-
-    const headerEnd = buffer.indexOf("\r\n\r\n");
-    if (headerEnd >= 0 && buffer.slice(0, headerEnd).includes("Content-Length:")) {
-      const header = buffer.slice(0, headerEnd);
-      const match = header.match(/Content-Length:\s*(\d+)/i);
-      buffer = buffer.slice(headerEnd + 4);
-      if (!match) {
-        emitParseError();
-        continue;
-      }
-      pendingContentLength = Number.parseInt(match[1], 10);
-      continue;
-    }
-
-    const newlineIndex = buffer.indexOf("\n");
-    if (newlineIndex === -1) {
-      return;
-    }
-    const line = buffer.slice(0, newlineIndex).trim();
-    buffer = buffer.slice(newlineIndex + 1);
-    if (!line) {
-      continue;
-    }
-    try {
-      const message = JSON.parse(line);
-      handleMessage(message);
-    } catch {
-      emitParseError();
     }
   }
+
+  process.stdin.on("data", (chunk) => {
+    buffer += chunk;
+    processBuffer();
+  });
+
+  process.stdin.on("end", () => {
+    process.exit(0);
+  });
 }
 
-process.stdin.on("data", (chunk) => {
-  buffer += chunk;
-  processBuffer();
-});
+function isMainModule() {
+  if (!process.argv[1]) {
+    return false;
+  }
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
+}
 
-process.stdin.on("end", () => {
-  process.exit(0);
-});
+if (isMainModule()) {
+  startServer();
+}
+
+export { fetchAndCachePage, handleToolCall, startServer };

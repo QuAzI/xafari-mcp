@@ -4,7 +4,10 @@ import { dataDir } from "./config.js";
 
 const pagesPath = path.join(dataDir, "pages.json");
 const indexPath = path.join(dataDir, "index.json");
-const pagesDir = path.join(dataDir, "pages");
+
+function resolvePagesDir(baseDir = dataDir) {
+  return path.join(baseDir, "pages");
+}
 
 async function ensureDataDir() {
   await fs.mkdir(dataDir, { recursive: true });
@@ -18,7 +21,7 @@ function sanitizePathSegment(value) {
   return value.replace(/[<>:"/\\|?*]/g, "_").trim();
 }
 
-function slugToMarkdownPath(slug, breadcrumbs = []) {
+function slugToMarkdownPath(slug, breadcrumbs = [], baseDir) {
   const normalized = (slug || "index").replace(/^\/+/, "");
   const parts = normalized.split("/").filter(Boolean).map(sanitizePathSegment);
   const safePath = parts.length > 0 ? parts.join(path.sep) : "index";
@@ -26,8 +29,8 @@ function slugToMarkdownPath(slug, breadcrumbs = []) {
     ? breadcrumbs.map(sanitizePathSegment).filter(Boolean)
     : [];
   const dirPath = breadcrumbParts.length > 0
-    ? path.join(pagesDir, ...breadcrumbParts)
-    : pagesDir;
+    ? path.join(resolvePagesDir(baseDir), ...breadcrumbParts)
+    : resolvePagesDir(baseDir);
   return path.join(dirPath, `${safePath}.md`);
 }
 
@@ -83,7 +86,8 @@ function extractMarkdownLinks(markdown) {
   return links;
 }
 
-function parseMarkdownPage(content, filePath) {
+function parseMarkdownPage(content, filePath, baseDir) {
+  const pagesDir = resolvePagesDir(baseDir);
   const headerRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
   const match = content.match(headerRegex);
   let metadata = {};
@@ -140,14 +144,15 @@ function parseMarkdownPage(content, filePath) {
   };
 }
 
-async function savePageMarkdown(page) {
-  const filePath = slugToMarkdownPath(page.slug, page.breadcrumbs);
+async function savePageMarkdown(page, baseDir) {
+  const filePath = slugToMarkdownPath(page.slug, page.breadcrumbs, baseDir);
   await ensurePagesDir(path.dirname(filePath));
   const content = serializePageMarkdown(page);
   await fs.writeFile(filePath, content, "utf8");
 }
 
-async function loadPagesFromMarkdown() {
+async function loadPagesFromMarkdown(baseDir) {
+  const pagesDir = resolvePagesDir(baseDir);
   async function walk(dir) {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     const files = [];
@@ -163,7 +168,7 @@ async function loadPagesFromMarkdown() {
   }
 
   try {
-    await ensurePagesDir();
+    await ensurePagesDir(pagesDir);
   } catch {
     return [];
   }
@@ -172,7 +177,7 @@ async function loadPagesFromMarkdown() {
   const pages = [];
   for (const file of files) {
     const content = await fs.readFile(file, "utf8");
-    pages.push(parseMarkdownPage(content, file));
+    pages.push(parseMarkdownPage(content, file, baseDir));
   }
   return pages;
 }

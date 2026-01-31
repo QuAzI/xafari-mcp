@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractHeadings, extractText, extractTitle } from "../src/html.js";
+import {
+  extractBreadcrumbs,
+  extractHeadings,
+  extractText,
+  extractTitle,
+} from "../src/html.js";
 
 test("extractTitle prefers <title>, falls back to h1", () => {
   const html = "<html><head><title>Doc Title</title></head><body></body></html>";
@@ -29,4 +34,21 @@ test("extractText keeps headings and code blocks", () => {
   assert.match(result.text, /# Intro/);
   assert.match(result.text, /Some text/);
   assert.match(result.text, /```[\s\S]*const a = 1;[\s\S]*```/);
+});
+
+test("extractBreadcrumbs collects unique crumb labels", () => {
+  const html = `
+    <nav class="breadcrumb">
+      <a href="/xafari/doc_home_page">Home</a>
+      <a href="/xafari/doc_enterprise_solutions">ERP Components</a>
+      <a href="/xafari/doc_mvc">Xafari ASP.NET MVC</a>
+      <a href="/xafari/doc_mvc_getting_started">Getting Started</a>
+    </nav>
+  `;
+  assert.deepEqual(extractBreadcrumbs(html), [
+    "Home",
+    "ERP Components",
+    "Xafari ASP.NET MVC",
+    "Getting Started",
+  ]);
 });
