@@ -206,7 +206,7 @@ async function fetchAndCachePage(slug) {
   const title = extractTitle(html) || url;
   const breadcrumbs = extractBreadcrumbs(html);
   const headings = extractHeadings(html);
-  const { text, codeBlocks } = extractText(html);
+  const { text, codeBlocks } = extractText(html, url);
   const links = extractLinks(html);
   const urlObj = new URL(url);
   const slugValue = urlObj.pathname.startsWith(new URL(baseUrl).pathname)

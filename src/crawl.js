@@ -276,7 +276,7 @@ async function runCrawl(options = {}) {
         const title = extractTitle(html) || current;
         const breadcrumbs = extractBreadcrumbs(html);
         const headings = extractHeadings(html);
-        const { text, codeBlocks } = extractText(html);
+        const { text, codeBlocks } = extractText(html, current);
         const urlObj = new URL(current);
         links = extractLinks(html);
 

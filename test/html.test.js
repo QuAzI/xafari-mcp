@@ -75,3 +75,47 @@ test("extractBreadcrumbs falls back to doc_ links near h1", () => {
     "Migration from WebForms to MVC",
   ]);
 });
+
+test("extractText wraps language labels into fenced code blocks", () => {
+  const html = `
+    <div>
+      <p>c#</p>
+      <p>public void smth(){ RecursiveHelper.Recursive(data, a => a.Children); }</p>
+      <p>VB</p>
+      <p>Public Sub smth() RecursiveHelper.Recursive(data, Function(ByVal a) a.Children) End Sub</p>
+    </div>
+  `;
+  const result = extractText(html, "https://documentation.galaktika-soft.com/xafari/");
+  const text = result.text;
+  assert.match(text, /```cs[\s\S]*public void smth\(\)/);
+  assert.match(text, /```vb[\s\S]*Public Sub smth\(\)/);
+});
+
+test("extractText keeps images and wraps link images", () => {
+  const html = `
+    <p><a href="/xafari/doc_check_action">
+      <img src="/xafari/Content/app_files/check_action_1.png" alt="check_action_1" />
+    </a></p>
+  `;
+  const result = extractText(html, "https://documentation.galaktika-soft.com/xafari/");
+  assert.match(
+    result.text,
+    /\[!\[check_action_1]\(https:\/\/documentation\.galaktika-soft\.com\/xafari\/Content\/app_files\/check_action_1\.png\)\]\(https:\/\/documentation\.galaktika-soft\.com\/xafari\/doc_check_action\)/
+  );
+});
+
+test("extractText uses code_content class language", () => {
+  const html = `
+    <div class="code_content csharp">
+      public class Class1 { public int Int1 { get; set; } }
+    </div>
+    <div class="code_content vb">
+      Public Class Class1
+        Public Property Int1 As Integer
+      End Class
+    </div>
+  `;
+  const result = extractText(html, "https://documentation.galaktika-soft.com/xafari/");
+  assert.match(result.text, /```cs[\s\S]*public class Class1/);
+  assert.match(result.text, /```vb[\s\S]*Public Class Class1/);
+});
