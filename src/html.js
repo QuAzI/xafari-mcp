@@ -65,6 +65,40 @@ function extractHeadings(html) {
   return headings;
 }
 
+function extractBreadcrumbs(html) {
+  const containers = [];
+  const containerRegex =
+    /<([a-z0-9]+)[^>]*class="[^"]*(breadcrumb|breadcrumbs)[^"]*"[^>]*>([\s\S]*?)<\/\1>/gi;
+  let match = containerRegex.exec(html);
+  while (match) {
+    containers.push(match[3]);
+    match = containerRegex.exec(html);
+  }
+
+  const links = [];
+  for (const container of containers) {
+    const linkRegex = /<a\s+[^>]*>([\s\S]*?)<\/a>/gi;
+    let linkMatch = linkRegex.exec(container);
+    while (linkMatch) {
+      const text = decodeHtml(stripTags(linkMatch[1])).trim();
+      if (text) {
+        links.push(text);
+      }
+      linkMatch = linkRegex.exec(container);
+    }
+  }
+
+  const seen = new Set();
+  const unique = [];
+  for (const item of links) {
+    if (!seen.has(item)) {
+      seen.add(item);
+      unique.push(item);
+    }
+  }
+  return unique;
+}
+
 function extractTitle(html) {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (titleMatch) {
@@ -145,6 +179,7 @@ function sanitizeHtml(html) {
 
 export {
   decodeHtml,
+  extractBreadcrumbs,
   extractLinks,
   extractHeadings,
   extractText,

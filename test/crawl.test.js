@@ -30,6 +30,11 @@ const logger = {
   warn: () => {},
 };
 
+const noMarkdownIO = {
+  savePageMarkdownImpl: async () => {},
+  loadPagesForIndexImpl: async (pages) => pages,
+};
+
 test("only-new reuses existing page without fetching", async () => {
   const existingPages = [
     {
@@ -67,6 +72,7 @@ test("only-new reuses existing page without fetching", async () => {
     savePagesImpl: async () => {},
     saveIndexImpl: async () => {},
     logger,
+    ...noMarkdownIO,
   });
 
   assert.equal(calls.length, 1);
@@ -108,6 +114,7 @@ test("force overrides only-new and fetches", async () => {
     savePagesImpl: async () => {},
     saveIndexImpl: async () => {},
     logger,
+    ...noMarkdownIO,
   });
 
   assert.equal(getCalls(), 1);
@@ -167,6 +174,7 @@ test("304 without links triggers refetch", async () => {
     savePagesImpl: async () => {},
     saveIndexImpl: async () => {},
     logger,
+    ...noMarkdownIO,
   });
 
   assert.equal(callIndex, 2);
@@ -206,6 +214,7 @@ test("304 with links reuses page without refetch", async () => {
     savePagesImpl: async () => {},
     saveIndexImpl: async () => {},
     logger,
+    ...noMarkdownIO,
   });
 
   assert.equal(getCalls(), 1);
@@ -236,6 +245,7 @@ test("max pages per session limits fetched pages", async () => {
     savePagesImpl: async () => {},
     saveIndexImpl: async () => {},
     logger,
+    ...noMarkdownIO,
   });
 
   assert.equal(getCalls(), 1);
@@ -279,6 +289,7 @@ test("max pages per session ignores reused pages", async () => {
     savePagesImpl: async () => {},
     saveIndexImpl: async () => {},
     logger,
+    ...noMarkdownIO,
   });
 
   assert.equal(getCalls(), 2);

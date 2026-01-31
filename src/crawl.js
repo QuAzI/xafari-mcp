@@ -5,9 +5,20 @@ import {
   requestTimeoutMs,
   userAgent,
 } from "./config.js";
-import { extractHeadings, extractLinks, extractText, extractTitle } from "./html.js";
+import {
+  extractBreadcrumbs,
+  extractHeadings,
+  extractLinks,
+  extractText,
+  extractTitle,
+} from "./html.js";
 import { buildIndex } from "./indexer.js";
-import { loadPages, saveIndex, savePages } from "./storage.js";
+import {
+  loadPagesFromMarkdown,
+  saveIndex,
+  savePageMarkdown,
+  savePages,
+} from "./storage.js";
 
 function parseArgs(argv) {
   const args = new Set(argv);
@@ -80,7 +91,7 @@ async function fetchHtml(url, extraHeaders = {}, fetchImpl = fetch) {
   }
 }
 
-async function loadExistingPages(loadPagesImpl = loadPages) {
+async function loadExistingPages(loadPagesImpl = loadPagesFromMarkdown) {
   try {
     const pages = await loadPagesImpl();
     return Array.isArray(pages) ? pages : [];
@@ -98,6 +109,8 @@ async function runCrawl(options = {}) {
     maxPagesOverride,
     fetchImpl,
     loadPagesImpl,
+    savePageMarkdownImpl,
+    loadPagesForIndexImpl,
     savePagesImpl,
     saveIndexImpl,
     logger = console,
@@ -162,26 +175,34 @@ async function runCrawl(options = {}) {
 
     let links = [];
     if (response.status === 304 && existing) {
-      pages.push({
+      const page = {
         ...existing,
         etag: response.etag ?? existing.etag ?? null,
         lastModified: response.lastModified ?? existing.lastModified ?? null,
         lastCheckedAt: new Date().toISOString(),
-      });
+      };
+      pages.push(page);
       links = existing.links || [];
       reusedCount += 1;
+      if (savePageMarkdownImpl) {
+        await savePageMarkdownImpl(page);
+      } else {
+        await savePageMarkdown(page);
+      }
     } else {
       html = response.html;
       const title = extractTitle(html) || current;
+      const breadcrumbs = extractBreadcrumbs(html);
       const headings = extractHeadings(html);
       const { text, codeBlocks } = extractText(html);
       const urlObj = new URL(current);
       links = extractLinks(html);
 
-      pages.push({
+      const page = {
         slug: toSlug(urlObj, rootUrl),
         url: current,
         title,
+        breadcrumbs,
         headings,
         text,
         codeBlocks,
@@ -190,8 +211,14 @@ async function runCrawl(options = {}) {
         lastModified: response.lastModified || null,
         updatedAt: new Date().toISOString(),
         lastCheckedAt: new Date().toISOString(),
-      });
+      };
+      pages.push(page);
       fetchedCount += 1;
+      if (savePageMarkdownImpl) {
+        await savePageMarkdownImpl(page);
+      } else {
+        await savePageMarkdown(page);
+      }
     }
 
     for (const link of links) {
@@ -222,11 +249,14 @@ async function runCrawl(options = {}) {
     );
   }
 
-  const index = buildIndex(pages);
+  const pagesForIndex = loadPagesForIndexImpl
+    ? await loadPagesForIndexImpl(pages)
+    : await loadPagesFromMarkdown();
+  const index = buildIndex(pagesForIndex);
   if (savePagesImpl) {
-    await savePagesImpl(pages);
+    await savePagesImpl(pagesForIndex);
   } else {
-    await savePages(pages);
+    await savePages(pagesForIndex);
   }
   if (saveIndexImpl) {
     await saveIndexImpl(index);
