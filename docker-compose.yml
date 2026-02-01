@@ -1,0 +1,15 @@
+services:
+  mcp-service:
+    image: node:24-alpine
+    working_dir: /app
+    command: ["npm", "run", "start:http"]
+    ports:
+      - "3333:3333"
+    environment:
+      DATA_DIR: /app/data
+      HTTP_PORT: "3333"
+    volumes:
+      - ./package.json:/app/package.json:ro
+      - ./src:/app/src:ro
+      - ./data:/app/data
+    restart: unless-stopped
