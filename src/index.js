@@ -54,10 +54,14 @@ const TOOLS = [
       properties: {
         slug: {
           type: "string",
-          description: "Page slug (relative path) or full URL.",
+          description: "Short slug (e.g. doc_recursive_helper).",
+        },
+        url: {
+          type: "string",
+          description: "Full page URL.",
         },
       },
-      required: ["slug"],
+      required: [],
     },
   },
   {
@@ -280,28 +284,29 @@ async function handleToolCall(name, args, options = {}) {
   }
 
   if (name === "get_page") {
-    const page = resolvePage(args.slug) || resolvePageFromPages(pages, args.slug);
+    const lookup = args.url || args.slug;
+    const page = resolvePage(lookup) || resolvePageFromPages(pages, lookup);
     if (!page) {
       const allowFetch =
         typeof fetchOnMissOverride === "boolean" ? fetchOnMissOverride : fetchOnMiss;
       if (allowFetch) {
         try {
           const fetched = fetchAndCachePageImpl
-            ? await fetchAndCachePageImpl(args.slug)
-            : await fetchAndCachePage(args.slug);
+            ? await fetchAndCachePageImpl(lookup)
+            : await fetchAndCachePage(lookup);
           return toolResult(JSON.stringify(fetched, null, 2));
         } catch (error) {
           logger.warn("get_page.fetch_on_miss.failed", {
-            slug: args.slug,
+            slug: lookup,
             error: error.message,
           });
           return toolResult(
-            `Page not found and fetch failed for slug: ${args.slug}. ${error.message}`,
+            `Page not found and fetch failed for slug: ${lookup}. ${error.message}`,
             { isError: true }
           );
         }
       }
-      return toolResult(`Page not found for slug: ${args.slug}`, { isError: true });
+      return toolResult(`Page not found for slug: ${lookup}`, { isError: true });
     }
     return toolResult(JSON.stringify(page, null, 2));
   }

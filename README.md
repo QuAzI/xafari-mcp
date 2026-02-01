@@ -87,9 +87,10 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 - `search_docs(query, limit?)`
   - Ищет по индексу документации и возвращает список результатов с `title`, `url`, `excerpt`, `headings`.
   - `limit` ограничивает количество результатов (1–20, по умолчанию 5).
-- `get_page(slug)`
+- `get_page(slug | url)`
   - Возвращает полный контент страницы (markdown‑текст, headings, codeBlocks, links, breadcrumbs).
-  - `slug` можно передать как относительный путь (`doc_recursive_helper`) или полный URL.
+  - `slug` — короткая форма (например, `doc_recursive_helper`).
+  - `url` — полный адрес страницы документации.
 - `get_examples(topic, limit?)`
   - Ищет страницы по теме и извлекает фрагменты кода.
     - Делает search_docs(topic, limit) по индексу.
@@ -183,7 +184,7 @@ POST http://localhost:3333/tools/get_page
 Content-Type: application/json
 
 {
-  "slug": "https://documentation.galaktika-soft.com/xafari/doc_recursive_helper"
+  "url": "https://documentation.galaktika-soft.com/xafari/doc_recursive_helper"
 }
 ```
 
