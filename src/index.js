@@ -1,16 +1,18 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import {
   loadIndex,
   loadPages,
   loadPagesFromMarkdown,
+  loadPageMarkdownByMetadata,
   saveIndex,
   savePageMarkdown,
   savePages,
   getIndexPath,
   getPagesPath,
 } from "./storage.js";
-import { searchIndex } from "./search.js";
+import { buildExcerpt, searchIndex } from "./search.js";
 import { buildIndex } from "./indexer.js";
 import {
   baseUrl,
@@ -95,6 +97,16 @@ let indexCache = null;
 let pageBySlug = null;
 let pageByUrl = null;
 const logger = createLogger({ component: "server", logPath: logFile });
+let dataMissingLogged = false;
+
+function logStartupInfo() {
+  const pagesPath = getPagesPath();
+  logger.log("server.startup", {
+    cwd: process.cwd(),
+    pagesJsonPath: pagesPath,
+    pagesJsonExists: fs.existsSync(pagesPath),
+  });
+}
 
 async function fetchHtml(url) {
   const controller = new AbortController();
@@ -140,9 +152,41 @@ async function loadData() {
     pageByUrl = new Map(pages.map((page) => [page.url, page]));
     return { pages, index };
   } catch (error) {
+    if (!dataMissingLogged) {
+      dataMissingLogged = true;
+      const pagesPath = getPagesPath();
+      const indexPath = getIndexPath();
+      let pagesStat = null;
+      let indexStat = null;
+      try {
+        const st = fs.statSync(pagesPath);
+        pagesStat = { size: st.size, mtimeMs: st.mtimeMs, mode: st.mode };
+      } catch (e) {
+        pagesStat = { error: e?.code || e?.message || String(e) };
+      }
+      try {
+        const st = fs.statSync(indexPath);
+        indexStat = { size: st.size, mtimeMs: st.mtimeMs, mode: st.mode };
+      } catch (e) {
+        indexStat = { error: e?.code || e?.message || String(e) };
+      }
+      logger.error("data.missing", {
+        cwd: process.cwd(),
+        pagesJsonPath: pagesPath,
+        pagesJsonExists: fs.existsSync(pagesPath),
+        pagesJsonStat: pagesStat,
+        indexJsonPath: indexPath,
+        indexJsonExists: fs.existsSync(indexPath),
+        indexJsonStat: indexStat,
+        errorName: error?.name,
+        errorMessage: error?.message,
+      });
+    }
     const message = [
-      "Index data not found.",
+      "Index data not found (or failed to load).",
       `Expected files: ${getPagesPath()} and ${getIndexPath()}`,
+      `Underlying error: ${error?.message || String(error)}`,
+      "If the files exist, they may be too large or invalid JSON.",
       "Run: npm run crawl",
     ].join("\n");
     const err = new Error(message);
@@ -281,7 +325,18 @@ async function handleToolCall(name, args, options = {}) {
   if (name === "search_docs") {
     const limit = Number.isFinite(args?.limit) ? args.limit : 5;
     const results = searchIndex(index, pages, args.query, limit);
-    return toolResult(JSON.stringify(results, null, 2));
+    // Improve excerpts/headings by loading full markdown for top results.
+    const enriched = [];
+    for (const item of results.results) {
+      const meta = pages[item.pageId];
+      const full = meta ? await loadPageMarkdownByMetadata(meta) : null;
+      enriched.push({
+        ...item,
+        excerpt: full ? buildExcerpt(full.text || "", results.tokens) : item.excerpt,
+        headings: full?.headings || item.headings || [],
+      });
+    }
+    return toolResult(JSON.stringify({ ...results, results: enriched }, null, 2));
   }
 
   if (name === "get_page") {
@@ -309,7 +364,8 @@ async function handleToolCall(name, args, options = {}) {
       }
       return toolResult(`Page not found for slug: ${lookup}`, { isError: true });
     }
-    return toolResult(JSON.stringify(page, null, 2));
+    const full = await loadPageMarkdownByMetadata(page);
+    return toolResult(JSON.stringify(full || page, null, 2));
   }
 
   if (name === "get_examples") {
@@ -317,7 +373,8 @@ async function handleToolCall(name, args, options = {}) {
     const search = searchIndex(index, pages, args.topic, limit);
     const examples = [];
     for (const result of search.results) {
-      const page = resolvePage(result.slug);
+      const pageMeta = resolvePage(result.slug);
+      const page = pageMeta ? await loadPageMarkdownByMetadata(pageMeta) : null;
       if (!page || !Array.isArray(page.codeBlocks)) {
         continue;
       }
@@ -350,9 +407,11 @@ async function handleToolCall(name, args, options = {}) {
       });
     }
     const primary = search.results[0];
+    const primaryMeta = primary?.pageId !== undefined ? pages[primary.pageId] : null;
+    const primaryFull = primaryMeta ? await loadPageMarkdownByMetadata(primaryMeta) : null;
     const explanation = {
       concept: args.name,
-      summary: primary.excerpt,
+      summary: primaryFull ? buildExcerpt(primaryFull.text || "", search.tokens) : primary.excerpt,
       page: {
         slug: primary.slug,
         title: primary.title,
@@ -486,6 +545,7 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
+  logStartupInfo();
   startServer();
 }
 

@@ -21,6 +21,7 @@ import {
   loadPageMarkdownByMetadata,
   loadPageMetadataFromMarkdown,
   loadPagesFromMarkdown,
+  summarizePage,
   saveBinaryAsset,
   saveIndex,
   savePageMarkdown,
@@ -180,16 +181,13 @@ async function loadExistingPages(loadPagesImpl = loadPageMetadataFromMarkdown) {
 
 function createPagesWriter(filePath) {
   const stream = fs.createWriteStream(filePath, { encoding: "utf8" });
-  let first = true;
-  stream.write("[\n");
+  // NDJSON: one JSON object per line (stream-friendly).
   return {
     writePage(page) {
-      const prefix = first ? "" : ",\n";
-      first = false;
-      stream.write(`${prefix}${JSON.stringify(page, null, 2)}`);
+      // Write only lightweight summary to keep pages.json small.
+      stream.write(`${JSON.stringify(summarizePage(page))}\n`);
     },
     async close() {
-      stream.write("\n]\n");
       await new Promise((resolve) => stream.end(resolve));
     },
   };

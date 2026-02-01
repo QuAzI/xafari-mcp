@@ -2,10 +2,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import readline from "node:readline";
 import { dataDir } from "./config.js";
+import { trackFileRead } from "./request-context.js";
 
 const pagesPath = path.join(dataDir, "pages.json");
 const indexPath = path.join(dataDir, "index.json");
+
+const DEFAULT_PAGES_JSON_EXCERPT_CHARS = 4000;
 
 function resolvePagesDir(baseDir = dataDir) {
   return path.join(baseDir, "pages");
@@ -13,6 +17,25 @@ function resolvePagesDir(baseDir = dataDir) {
 
 function resolveAssetsDir(baseDir = dataDir) {
   return path.join(baseDir, "assets");
+}
+
+function summarizePage(page, options = {}) {
+  const { excerptChars = DEFAULT_PAGES_JSON_EXCERPT_CHARS } = options;
+  const text = typeof page?.text === "string" ? page.text : "";
+  return {
+    slug: page?.slug || "",
+    url: page?.url || "",
+    title: page?.title || "",
+    breadcrumbs: Array.isArray(page?.breadcrumbs) ? page.breadcrumbs : [],
+    headings: Array.isArray(page?.headings) ? page.headings : [],
+    links: Array.isArray(page?.links) ? page.links : [],
+    etag: page?.etag ?? null,
+    lastModified: page?.lastModified ?? null,
+    updatedAt: page?.updatedAt ?? null,
+    lastCheckedAt: page?.lastCheckedAt ?? null,
+    // Keep a small preview for search excerpts without loading full markdown.
+    excerpt: text ? text.slice(0, excerptChars) : "",
+  };
 }
 
 async function ensureDataDir() {
@@ -526,6 +549,7 @@ async function loadPagesFromMarkdown(baseDir) {
   const files = await walk(pagesDir);
   const pages = [];
   for (const file of files) {
+    trackFileRead(file);
     const content = await fsPromises.readFile(file, "utf8");
     pages.push(parseMarkdownPage(content, file, baseDir));
   }
@@ -557,6 +581,7 @@ async function loadPagesFromMarkdownWithPaths(baseDir) {
   const files = await walk(pagesDir);
   const pages = [];
   for (const file of files) {
+    trackFileRead(file);
     const content = await fsPromises.readFile(file, "utf8");
     const page = parseMarkdownPage(content, file, baseDir);
     pages.push({ page, filePath: file });
@@ -589,7 +614,8 @@ async function loadPageMetadataFromMarkdown(baseDir) {
   const files = await walk(pagesDir);
   const pages = [];
   for (const file of files) {
-    const content = await fs.readFile(file, "utf8");
+    trackFileRead(file);
+    const content = await fsPromises.readFile(file, "utf8");
     const headerRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
     const match = content.match(headerRegex);
     if (!match) {
@@ -619,7 +645,8 @@ async function loadPageMarkdownByMetadata(metadata, baseDir) {
   }
   const filePath = slugToMarkdownPath(metadata.slug, metadata.breadcrumbs, baseDir);
   try {
-    const content = await fs.readFile(filePath, "utf8");
+    trackFileRead(filePath);
+    const content = await fsPromises.readFile(filePath, "utf8");
     return parseMarkdownPage(content, filePath, baseDir);
   } catch {
     return null;
@@ -653,17 +680,63 @@ async function saveJson(filePath, value) {
   await fsPromises.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
 }
 
+async function saveJsonCompact(filePath, value) {
+  await ensureDataDir();
+  await fsPromises.writeFile(filePath, `${JSON.stringify(value)}\n`, "utf8");
+}
+
 async function loadJson(filePath) {
+  trackFileRead(filePath);
   const raw = await fsPromises.readFile(filePath, "utf8");
   return JSON.parse(raw);
 }
 
+async function detectJsonFormat(filePath) {
+  // Detect by first non-whitespace character:
+  // - '[' => JSON array
+  // - otherwise => treat as NDJSON (one JSON object per line)
+  const handle = await fsPromises.open(filePath, "r");
+  try {
+    const buf = Buffer.alloc(4096);
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    const text = buf.slice(0, bytesRead).toString("utf8");
+    const first = text.trimStart()[0];
+    return first === "[" ? "array" : "ndjson";
+  } finally {
+    await handle.close();
+  }
+}
+
+async function loadNdjsonArray(filePath) {
+  trackFileRead(filePath);
+  const stream = fs.createReadStream(filePath, { encoding: "utf8" });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  const items = [];
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    items.push(JSON.parse(trimmed));
+  }
+  return items;
+}
+
 async function savePages(pages) {
-  await saveJson(pagesPath, pages);
+  // Persist only lightweight metadata to avoid gigantic JSON (Node string limit).
+  // Use NDJSON so it can be loaded streamingly even for very large datasets.
+  await ensureDataDir();
+  const stream = fs.createWriteStream(pagesPath, { encoding: "utf8" });
+  const list = Array.isArray(pages) ? pages : [];
+  for (const page of list) {
+    stream.write(`${JSON.stringify(summarizePage(page))}\n`);
+  }
+  await new Promise((resolve) => stream.end(resolve));
 }
 
 async function loadPages() {
-  return loadJson(pagesPath);
+  const format = await detectJsonFormat(pagesPath);
+  return format === "array" ? loadJson(pagesPath) : loadNdjsonArray(pagesPath);
 }
 
 async function saveIndex(index) {
@@ -683,6 +756,7 @@ function getIndexPath() {
 }
 
 export {
+  summarizePage,
   savePageMarkdown,
   loadPagesFromMarkdown,
   loadPagesFromMarkdownWithPaths,

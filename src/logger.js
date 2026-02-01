@@ -3,6 +3,7 @@ import path from "node:path";
 import { dataDir } from "./config.js";
 
 const defaultLogPath = path.join(dataDir, "logs", "xafari-mcp.jsonl");
+const envStdoutEnabled = (process.env.LOG_STDOUT || "").toLowerCase() === "true";
 
 function resolveLogPath(value) {
   if (!value) {
@@ -19,8 +20,9 @@ function serializeLog(entry) {
   return `${JSON.stringify(entry)}\n`;
 }
 
-function createLogger({ logPath, component } = {}) {
+function createLogger({ logPath, component, stdout } = {}) {
   const filePath = resolveLogPath(logPath);
+  const stdoutEnabled = typeof stdout === "boolean" ? stdout : envStdoutEnabled;
   const base = {
     component: component || "app",
   };
@@ -31,8 +33,19 @@ function createLogger({ logPath, component } = {}) {
       ...entry,
       timestamp: new Date().toISOString(),
     };
+    const line = serializeLog(payload);
+
+    if (stdoutEnabled) {
+      try {
+        process.stdout.write(line);
+      } catch {
+        // ignore
+      }
+    }
+
+    // Keep file logging as the default sink.
     await ensureLogDir(filePath);
-    await fs.appendFile(filePath, serializeLog(payload), "utf8");
+    await fs.appendFile(filePath, line, "utf8");
   }
 
   function wrap(level) {

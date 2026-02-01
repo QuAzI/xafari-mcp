@@ -1,6 +1,9 @@
 import { tokenize } from "./indexer.js";
 
 function buildExcerpt(text, queryTokens, maxLength = 360) {
+  if (!text || typeof text !== "string") {
+    return "";
+  }
   const lower = text.toLowerCase();
   let hitIndex = -1;
 
@@ -43,14 +46,24 @@ function searchIndex(index, pages, query, limit = 5) {
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
-    .map(({ page, score }) => ({
-      slug: page.slug,
-      title: page.title,
-      url: page.url,
-      score,
-      excerpt: buildExcerpt(page.text, tokens),
-      headings: page.headings || [],
-    }));
+    .map(({ pageId, page, score }) => {
+      const safePage = page || {};
+      const textForExcerpt =
+        typeof safePage.text === "string"
+          ? safePage.text
+          : typeof safePage.excerpt === "string"
+            ? safePage.excerpt
+            : "";
+      return {
+        pageId,
+        slug: safePage.slug,
+        title: safePage.title,
+        url: safePage.url,
+        score,
+        excerpt: buildExcerpt(textForExcerpt, tokens),
+        headings: safePage.headings || [],
+      };
+    });
 
   return {
     query,

@@ -4,6 +4,7 @@ import {
   saveIndex,
   savePages,
 } from "./storage.js";
+import { pathToFileURL } from "node:url";
 
 async function reindex({
   loadPagesFromMarkdownImpl = loadPagesFromMarkdown,
@@ -19,7 +20,7 @@ async function reindex({
   return { pages, index };
 }
 
-if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   reindex().catch((error) => {
     console.error(`[reindex] failed: ${error.message}`);
     process.exitCode = 1;
