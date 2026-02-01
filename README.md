@@ -38,6 +38,8 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
    - `npm run start`
 3. Запустить HTTP‑режим (опционально):
    - `npm run start:http`
+4. Пересобрать индекс без краулинга:
+   - `npm run reindex`
 
 Опции краулера:
 - `npm run crawl` — по умолчанию скачивает только новые страницы.
@@ -210,6 +212,24 @@ Content-Type: application/json
 - `pages.json` формируется из markdown-файлов после завершения краулинга.
 - При сохранении учитываются breadcrumbs: страницы попадают в поддиректории по темам.
 - Ассеты (PDF/картинки) сохраняются в `data/assets`, ссылки в markdown остаются абсолютными.
+
+## Ручное пополнение документации
+
+1. Создайте `.md` в `data/pages` (подкаталоги = breadcrumbs).
+2. Добавьте YAML‑front‑matter с минимумом полей:
+   ```
+   ---
+   slug: my_custom_doc
+   url: https://example.local/my_custom_doc
+   title: Мой документ
+   breadcrumbs:
+     - Custom
+     - Docs
+   ---
+   ```
+3. Добавьте тело документа ниже фронт‑маттера.
+4. Пересоберите индекс без краулинга:
+   - `npm run reindex`
 
 ## Логи
 
