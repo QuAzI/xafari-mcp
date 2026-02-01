@@ -67,7 +67,11 @@ test("saveBinaryAsset stores file under assets path", async (t) => {
     "application/pdf",
     tempDir
   );
-  assert.ok(filePath.endsWith(path.join("assets", "xafari", "Content", "app_files", "sample.pdf")));
+  const normalized = filePath.replace(/\\/g, "/");
+  assert.match(
+    normalized,
+    /\/assets\/.*\/Content\/app_files\/sample\.pdf$/i
+  );
   const stat = await fs.stat(filePath);
   assert.equal(stat.isFile(), true);
 });

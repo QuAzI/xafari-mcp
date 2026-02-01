@@ -69,6 +69,7 @@ test("extractBreadcrumbs falls back to doc_ links near h1", () => {
   `;
 
   assert.deepEqual(extractBreadcrumbs(html), [
+    "General Components",
     "ERP Components",
     "Xafari ASP.NET MVC",
     "Getting Started",

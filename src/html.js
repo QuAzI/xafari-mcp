@@ -65,6 +65,35 @@ function extractHeadings(html) {
   return headings;
 }
 
+function normalizeBreadcrumbText(value) {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function trimTrailingArticleBreadcrumbs(items, html) {
+  if (!items.length) {
+    return items;
+  }
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch ? decodeHtml(stripTags(titleMatch[1])).trim() : "";
+  const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  const h1 = h1Match ? decodeHtml(stripTags(h1Match[1])).trim() : "";
+  const last = items[items.length - 1];
+  const normalizedLast = normalizeBreadcrumbText(last);
+  const normalizedTitle = normalizeBreadcrumbText(title);
+  const normalizedH1 = normalizeBreadcrumbText(h1);
+
+  if (
+    normalizedLast &&
+    (normalizedLast === normalizedTitle ||
+      normalizedLast === normalizedH1 ||
+      (normalizedTitle && normalizedTitle.includes(normalizedLast)) ||
+      (normalizedH1 && normalizedH1.includes(normalizedLast)))
+  ) {
+    return items.slice(0, -1);
+  }
+  return items;
+}
+
 function extractBreadcrumbs(html) {
   const containers = [];
   const containerRegex =
@@ -97,7 +126,7 @@ function extractBreadcrumbs(html) {
     }
   }
   if (unique.length > 0) {
-    return unique;
+    return trimTrailingArticleBreadcrumbs(unique, html);
   }
 
   const h1Match = html.match(/<h1[^>]*>/i);
@@ -143,10 +172,6 @@ function extractBreadcrumbs(html) {
   const navBlacklist = new Set(
     [
       "home",
-      "general information",
-      "what's new in help",
-      "general components",
-      "business components",
     ].map((item) => item.toLowerCase())
   );
   lastGroup = lastGroup.filter(
@@ -160,7 +185,7 @@ function extractBreadcrumbs(html) {
       heuristicUnique.push(item);
     }
   }
-  return heuristicUnique;
+  return trimTrailingArticleBreadcrumbs(heuristicUnique, html);
 }
 
 function extractTitle(html) {

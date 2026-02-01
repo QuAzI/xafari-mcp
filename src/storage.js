@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.js";
@@ -25,21 +26,44 @@ async function ensureAssetsDir(dirPath) {
   await fs.mkdir(dirPath, { recursive: true });
 }
 
-function sanitizePathSegment(value) {
+function hashString(value) {
+  return crypto.createHash("sha1").update(value).digest("hex").slice(0, 10);
+}
+
+function sanitizePathSegment(value, maxLength = 80) {
+  const cleaned = value.replace(/[<>:"/\\|?*]/g, "_").trim();
+  if (cleaned.length <= maxLength) {
+    return cleaned;
+  }
+  const suffix = hashString(cleaned);
+  return `${cleaned.slice(0, maxLength - suffix.length - 1)}-${suffix}`;
+}
+
+function sanitizeAssetSegment(value) {
   return value.replace(/[<>:"/\\|?*]/g, "_").trim();
 }
 
 function slugToMarkdownPath(slug, breadcrumbs = [], baseDir) {
   const normalized = (slug || "index").replace(/^\/+/, "");
-  const parts = normalized.split("/").filter(Boolean).map(sanitizePathSegment);
+  const parts = normalized.split("/").filter(Boolean).map((part) => sanitizePathSegment(part));
   const safePath = parts.length > 0 ? parts.join(path.sep) : "index";
   const breadcrumbParts = Array.isArray(breadcrumbs)
-    ? breadcrumbs.map(sanitizePathSegment).filter(Boolean)
+    ? breadcrumbs.map((part) => sanitizePathSegment(part)).filter(Boolean)
     : [];
   const dirPath = breadcrumbParts.length > 0
     ? path.join(resolvePagesDir(baseDir), ...breadcrumbParts)
     : resolvePagesDir(baseDir);
-  return path.join(dirPath, `${safePath}.md`);
+  let filePath = path.join(dirPath, `${safePath}.md`);
+  if (filePath.length > 240) {
+    const hash = hashString(`${slug}|${breadcrumbParts.join("/")}`);
+    const shortName = sanitizePathSegment(normalized || "index", 40);
+    filePath = path.join(dirPath, `${shortName}-${hash}.md`);
+  }
+  if (filePath.length > 240) {
+    const hash = hashString(`${slug}|${breadcrumbParts.join("/")}`);
+    filePath = path.join(resolvePagesDir(baseDir), `${hash}.md`);
+  }
+  return filePath;
 }
 
 function cleanMarkdown(text) {
@@ -347,7 +371,10 @@ function urlToAssetPath(url, baseDir, contentType = "") {
   const assetsDir = resolveAssetsDir(baseDir);
   const urlObj = new URL(url);
   const pathname = urlObj.pathname.replace(/^\/+/, "");
-  const safePath = pathname.split("/").map(sanitizePathSegment).join(path.sep);
+  const safePath = pathname
+    .split("/")
+    .map(sanitizeAssetSegment)
+    .join(path.sep);
   let filePath = path.join(assetsDir, safePath);
   if (!path.extname(filePath) && contentType.includes("pdf")) {
     filePath = `${filePath}.pdf`;
