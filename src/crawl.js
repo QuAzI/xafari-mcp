@@ -224,6 +224,7 @@ async function runCrawl(options = {}) {
     savePagesImpl,
     saveIndexImpl,
     logger = createLogger({ component: "crawler", logPath: logFile }),
+    consoleLogger = console,
     collectPages = false,
   } = options;
   const rootUrl = new URL(baseUrlOverride || baseUrl);
@@ -261,6 +262,9 @@ async function runCrawl(options = {}) {
     sessionLimit: sessionLimitLabel,
     totalLimit: totalLimitLabel,
   });
+  consoleLogger.log(
+    `[crawl] start ${rootUrl.toString()} (fetched limit ${sessionLimitLabel}, total limit ${totalLimitLabel})`
+  );
   while (
     queue.length > 0 &&
     pages.length < totalLimit &&
@@ -295,6 +299,7 @@ async function runCrawl(options = {}) {
       }
     } catch (error) {
       logger.warn("crawl.skip", { url: current, error: error.message });
+      consoleLogger.warn(`[crawl] skip ${current}: ${error.message}`);
       continue;
     }
 
@@ -324,11 +329,13 @@ async function runCrawl(options = {}) {
         } else {
           await savePageMarkdown(page);
         }
+        consoleLogger.log(`[crawl] cached ${current}`);
       }
     } else {
       if (response.kind === "asset") {
         await saveBinaryAsset(current, response.buffer, response.contentType);
         fetchedCount += 1;
+        consoleLogger.log(`[crawl] asset ${current}`);
       } else {
         html = response.html;
         const title = extractTitle(html) || current;
@@ -367,6 +374,7 @@ async function runCrawl(options = {}) {
         } else {
           await savePageMarkdown(page);
         }
+        consoleLogger.log(`[crawl] fetched ${current}`);
       }
     }
 
@@ -434,6 +442,9 @@ async function runCrawl(options = {}) {
     fetched: fetchedCount,
     reused: reusedCount,
   });
+  consoleLogger.log(
+    `[crawl] saved ${pages.length} pages (fetched ${fetchedCount}, reused ${reusedCount})`
+  );
   return { pages, index, fetchedCount, reusedCount };
 }
 
