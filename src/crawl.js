@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import {
   baseUrl,
@@ -14,8 +15,11 @@ import {
   extractText,
   extractTitle,
 } from "./html.js";
-import { buildIndex } from "./indexer.js";
+import { buildIndex, tokenize } from "./indexer.js";
 import {
+  getPagesPath,
+  loadPageMarkdownByMetadata,
+  loadPageMetadataFromMarkdown,
   loadPagesFromMarkdown,
   saveBinaryAsset,
   saveIndex,
@@ -165,12 +169,43 @@ async function fetchResource(url, extraHeaders = {}, fetchImpl = fetch) {
   }
 }
 
-async function loadExistingPages(loadPagesImpl = loadPagesFromMarkdown) {
+async function loadExistingPages(loadPagesImpl = loadPageMetadataFromMarkdown) {
   try {
     const pages = await loadPagesImpl();
     return Array.isArray(pages) ? pages : [];
   } catch {
     return [];
+  }
+}
+
+function createPagesWriter(filePath) {
+  const stream = fs.createWriteStream(filePath, { encoding: "utf8" });
+  let first = true;
+  stream.write("[\n");
+  return {
+    writePage(page) {
+      const prefix = first ? "" : ",\n";
+      first = false;
+      stream.write(`${prefix}${JSON.stringify(page, null, 2)}`);
+    },
+    async close() {
+      stream.write("\n]\n");
+      await new Promise((resolve) => stream.end(resolve));
+    },
+  };
+}
+
+function updateIndex(terms, pageId, page) {
+  const tokens = tokenize(`${page.title} ${page.text}`);
+  const counts = new Map();
+  for (const token of tokens) {
+    counts.set(token, (counts.get(token) || 0) + 1);
+  }
+  for (const [term, count] of counts.entries()) {
+    if (!terms[term]) {
+      terms[term] = {};
+    }
+    terms[term][pageId] = count;
   }
 }
 
@@ -189,6 +224,7 @@ async function runCrawl(options = {}) {
     savePagesImpl,
     saveIndexImpl,
     logger = createLogger({ component: "crawler", logPath: logFile }),
+    collectPages = false,
   } = options;
   const rootUrl = new URL(baseUrlOverride || baseUrl);
   const queue = [rootUrl.toString()];
@@ -196,8 +232,12 @@ async function runCrawl(options = {}) {
   const existingPages = await loadExistingPages(loadPagesImpl);
   const existingByUrl = new Map(existingPages.map((page) => [page.url, page]));
   const pages = [];
+  const useMemoryPages = Boolean(savePagesImpl) || collectPages;
+  const terms = {};
+  const pagesWriter = useMemoryPages ? null : createPagesWriter(getPagesPath());
   let reusedCount = 0;
   let fetchedCount = 0;
+  let pageId = 0;
 
   const sessionLimit =
     maxPagesPerSessionOverride ??
@@ -260,19 +300,30 @@ async function runCrawl(options = {}) {
 
     let links = [];
     if (response.status === 304 && existing) {
-      const page = {
-        ...existing,
-        etag: response.etag ?? existing.etag ?? null,
-        lastModified: response.lastModified ?? existing.lastModified ?? null,
-        lastCheckedAt: new Date().toISOString(),
-      };
-      pages.push(page);
-      links = existing.links || [];
-      reusedCount += 1;
-      if (savePageMarkdownImpl) {
-        await savePageMarkdownImpl(page);
+      let page = await loadPageMarkdownByMetadata(existing);
+      if (!page) {
+        response = await fetchResource(current, {}, fetchImpl);
       } else {
-        await savePageMarkdown(page);
+        page = {
+          ...page,
+          etag: response.etag ?? existing.etag ?? null,
+          lastModified: response.lastModified ?? existing.lastModified ?? null,
+          lastCheckedAt: new Date().toISOString(),
+        };
+        if (useMemoryPages) {
+          pages.push(page);
+        } else {
+          pagesWriter.writePage(page);
+        }
+        updateIndex(terms, pageId, page);
+        pageId += 1;
+        links = existing.links || [];
+        reusedCount += 1;
+        if (savePageMarkdownImpl) {
+          await savePageMarkdownImpl(page);
+        } else {
+          await savePageMarkdown(page);
+        }
       }
     } else {
       if (response.kind === "asset") {
@@ -303,7 +354,13 @@ async function runCrawl(options = {}) {
           updatedAt: new Date().toISOString(),
           lastCheckedAt: new Date().toISOString(),
         };
-        pages.push(page);
+        if (useMemoryPages) {
+          pages.push(page);
+        } else {
+          pagesWriter.writePage(page);
+        }
+        updateIndex(terms, pageId, page);
+        pageId += 1;
         fetchedCount += 1;
         if (savePageMarkdownImpl) {
           await savePageMarkdownImpl(page);
@@ -348,13 +405,22 @@ async function runCrawl(options = {}) {
     });
   }
 
-  const pagesForIndex = loadPagesForIndexImpl
-    ? await loadPagesForIndexImpl(pages)
-    : await loadPagesFromMarkdown();
-  const index = buildIndex(pagesForIndex);
+  if (pagesWriter) {
+    await pagesWriter.close();
+  }
+  const pagesForIndex = useMemoryPages
+    ? loadPagesForIndexImpl
+      ? await loadPagesForIndexImpl(pages)
+      : pages
+    : null;
+  const index = useMemoryPages ? buildIndex(pagesForIndex) : {
+    updatedAt: new Date().toISOString(),
+    pageCount: pageId,
+    terms,
+  };
   if (savePagesImpl) {
     await savePagesImpl(pagesForIndex);
-  } else {
+  } else if (useMemoryPages) {
     await savePages(pagesForIndex);
   }
   if (saveIndexImpl) {

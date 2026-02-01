@@ -281,6 +281,68 @@ async function loadPagesFromMarkdown(baseDir) {
   return pages;
 }
 
+async function loadPageMetadataFromMarkdown(baseDir) {
+  const pagesDir = resolvePagesDir(baseDir);
+  async function walk(dir) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...(await walk(entryPath)));
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+        files.push(entryPath);
+      }
+    }
+    return files;
+  }
+
+  try {
+    await ensurePagesDir(pagesDir);
+  } catch {
+    return [];
+  }
+
+  const files = await walk(pagesDir);
+  const pages = [];
+  for (const file of files) {
+    const content = await fs.readFile(file, "utf8");
+    const headerRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
+    const match = content.match(headerRegex);
+    if (!match) {
+      continue;
+    }
+    const metadata = parseYamlFrontMatter(match[1]);
+    if (!metadata.slug || !metadata.url) {
+      continue;
+    }
+    pages.push({
+      slug: metadata.slug,
+      url: metadata.url,
+      breadcrumbs: metadata.breadcrumbs || [],
+      links: metadata.links || [],
+      etag: metadata.etag || null,
+      lastModified: metadata.lastModified || null,
+      updatedAt: metadata.updatedAt || null,
+      lastCheckedAt: metadata.lastCheckedAt || null,
+    });
+  }
+  return pages;
+}
+
+async function loadPageMarkdownByMetadata(metadata, baseDir) {
+  if (!metadata || !metadata.slug) {
+    return null;
+  }
+  const filePath = slugToMarkdownPath(metadata.slug, metadata.breadcrumbs, baseDir);
+  try {
+    const content = await fs.readFile(filePath, "utf8");
+    return parseMarkdownPage(content, filePath, baseDir);
+  } catch {
+    return null;
+  }
+}
+
 function urlToAssetPath(url, baseDir, contentType = "") {
   const assetsDir = resolveAssetsDir(baseDir);
   const urlObj = new URL(url);
@@ -337,6 +399,8 @@ function getIndexPath() {
 export {
   savePageMarkdown,
   loadPagesFromMarkdown,
+  loadPageMetadataFromMarkdown,
+  loadPageMarkdownByMetadata,
   saveBinaryAsset,
   savePages,
   loadPages,
