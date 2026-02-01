@@ -4,34 +4,34 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
-const dataDir = process.env.XAFARI_DATA_DIR
-  ? path.resolve(process.env.XAFARI_DATA_DIR)
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
   : path.join(projectRoot, "data");
 
 const baseUrl =
-  process.env.XAFARI_DOCS_BASE_URL ||
+  process.env.DOCS_BASE_URL ||
   "https://documentation.galaktika-soft.com/xafari/";
 
 const maxPagesPerSession = Number.parseInt(
-  process.env.XAFARI_MAX_PAGES_PER_SESSION || "1000",
+  process.env.MAX_PAGES_PER_SESSION || "1000",
   10
 );
 const fetchOnMiss =
-  (process.env.XAFARI_FETCH_ON_MISS || "true").toLowerCase() !== "false";
-const logFile = process.env.XAFARI_LOG_FILE || "logs/xafari-mcp.jsonl";
-const codeLanguages = (process.env.XAFARI_CODE_LANGUAGES ||
+  (process.env.FETCH_ON_MISS || "true").toLowerCase() !== "false";
+const logFile = process.env.LOG_FILE || "logs/docs-mcp.jsonl";
+const codeLanguages = (process.env.CODE_LANGUAGES ||
   "cs,js,ts,json,yaml,xml,html,css")
   .split(",")
   .map((item) => item.trim().toLowerCase())
   .filter(Boolean);
-const httpPort = Number.parseInt(process.env.XAFARI_HTTP_PORT || "3333", 10);
+const httpPort = Number.parseInt(process.env.HTTP_PORT || "3333", 10);
 const requestTimeoutMs = Number.parseInt(
-  process.env.XAFARI_REQUEST_TIMEOUT_MS || "15000",
+  process.env.REQUEST_TIMEOUT_MS || "15000",
   10
 );
 const userAgent =
-  process.env.XAFARI_USER_AGENT ||
-  "xafari-mcp-crawler/0.1 (+https://galaktika-soft.com/xafari)";
+  process.env.USER_AGENT ||
+  "docs-mcp-crawler/0.1";
 
 export {
   baseUrl,

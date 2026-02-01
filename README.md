@@ -51,26 +51,26 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 
 ## Переменные окружения
 
-- `XAFARI_DOCS_BASE_URL` (по умолчанию: `https://documentation.galaktika-soft.com/xafari/`)
-- `XAFARI_MAX_PAGES_PER_SESSION` (по умолчанию: `1000`)
-- `XAFARI_FETCH_ON_MISS` (по умолчанию: `true`)
-- `XAFARI_DATA_DIR` (по умолчанию: `./data`)
-- `XAFARI_REQUEST_TIMEOUT_MS` (по умолчанию: `15000`)
-- `XAFARI_USER_AGENT`
-- `XAFARI_LOG_FILE` (по умолчанию: `logs/xafari-mcp.jsonl`)
-- `XAFARI_CODE_LANGUAGES` (по умолчанию: `cs,js,ts,json,yaml,xml,html,css`)
-- `XAFARI_HTTP_PORT` (по умолчанию: `3333`)
+- `DOCS_BASE_URL` (по умолчанию: `https://documentation.galaktika-soft.com/xafari/`)
+- `MAX_PAGES_PER_SESSION` (по умолчанию: `1000`)
+- `FETCH_ON_MISS` (по умолчанию: `true`)
+- `DATA_DIR` (по умолчанию: `./data`)
+- `REQUEST_TIMEOUT_MS` (по умолчанию: `15000`)
+- `USER_AGENT`
+- `LOG_FILE` (по умолчанию: `logs/docs-mcp.jsonl`)
+- `CODE_LANGUAGES` (по умолчанию: `cs,js,ts,json,yaml,xml,html,css`)
+- `HTTP_PORT` (по умолчанию: `3333`)
 
 ### Примеры кода
 
-- Примеры сохраняются только для языков из `XAFARI_CODE_LANGUAGES`.
+- Примеры сохраняются только для языков из `CODE_LANGUAGES`.
 - Языки нормализуются: `c#`/`csharp` → `cs`, `javascript` → `js`, `typescript` → `ts`, `yml` → `yaml`.
 - Если язык не разрешен — блок кода не сохраняется.
 
 ### Fetch on miss
 
 `get_page` может автоматически догружать страницу, если ее нет в кэше.
-Управляется флагом `XAFARI_FETCH_ON_MISS` (по умолчанию `true`).
+Управляется флагом `FETCH_ON_MISS` (по умолчанию `true`).
 
 ## Подключение MCP в IDE на примере Cursor
 
@@ -141,7 +141,7 @@ stdio — MCP‑сервер общается с IDE через стандарт
 
 http — режим, в котором MCP‑сервер поднимает HTTP‑endpoint и принимает запросы по сети. Удобно для внешних клиентов и инструментов (например, HTTPYac), но требует поднять отдельный процесс и порт.
 
-- Сервер поднимается командой `npm run start:http` (порт `XAFARI_HTTP_PORT`, по умолчанию `3333`).
+- Сервер поднимается командой `npm run start:http` (порт `HTTP_PORT`, по умолчанию `3333`).
 - Каждый инструмент доступен через `POST /tools/{toolName}` с JSON‑телом аргументов.
 - Для проверки доступен `GET /health`.
 
