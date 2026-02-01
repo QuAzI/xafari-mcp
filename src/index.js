@@ -370,11 +370,13 @@ async function handleToolCall(name, args, options = {}) {
   return toolResult(`Unknown tool: ${name}`, { isError: true });
 }
 
-async function handleMessage(message) {
+async function handleMessage(message, customRespond = null, customRespondError = null) {
   const { id, method, params } = message;
+  const respondFn = customRespond || respond;
+  const respondErrorFn = customRespondError || respondError;
 
   if (method === "initialize") {
-    respond(id, {
+    respondFn(id, {
       protocolVersion: "2024-11-05",
       serverInfo: SERVER_INFO,
       capabilities: {
@@ -385,22 +387,22 @@ async function handleMessage(message) {
   }
 
   if (method === "tools/list") {
-    respond(id, { tools: TOOLS });
+    respondFn(id, { tools: TOOLS });
     return;
   }
 
   if (method === "tools/call") {
     try {
       const result = await handleToolCall(params?.name, params?.arguments || {});
-      respond(id, result);
+      respondFn(id, result);
     } catch (error) {
-      respondError(id, error.message || "Tool call failed.");
+      respondErrorFn(id, error.message || "Tool call failed.");
     }
     return;
   }
 
   if (id !== undefined && id !== null) {
-    respondError(id, `Unsupported method: ${method}`);
+    respondErrorFn(id, `Unsupported method: ${method}`);
   }
 }
 
@@ -487,4 +489,4 @@ if (isMainModule()) {
   startServer();
 }
 
-export { fetchAndCachePage, handleToolCall, startServer };
+export { fetchAndCachePage, handleToolCall, handleMessage, startServer };

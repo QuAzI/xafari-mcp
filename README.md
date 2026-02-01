@@ -66,6 +66,8 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 
 ## Подключение MCP в IDE на примере Cursor
 
+### stdio-режим (локальный запуск)
+
 1. Откройте настройки MCP в Cursor.
 2. Добавьте новый сервер со следующими параметрами:
    - `name`: `xafari-mcp`
@@ -85,7 +87,38 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
   }
 }
 ```
-   
+
+### stdio-режим (через Docker)
+
+Если сервис запущен в Docker, можно использовать `docker exec`:
+
+```json
+{
+  "mcpServers": {
+    "xafari-mcp": {
+      "command": "docker",
+      "args": ["exec", "-i", "mcp-service", "node", "/app/src/index.js"]
+    }
+  }
+}
+```
+
+### HTTP-режим (SSE)
+
+Если сервис запущен в HTTP-режиме (например, через `docker compose`), используйте SSE transport:
+
+```json
+{
+  "mcpServers": {
+    "xafari-mcp": {
+      "url": "http://localhost:3333/sse"
+    }
+  }
+}
+```
+
+**Примечание:** HTTP-режим требует, чтобы сервис был запущен с `npm run start:http` или через `docker compose` (который автоматически запускает HTTP-сервер).
+
 3. Перезапустите MCP-сервер в Cursor.
 
 Чтобы проверить в окне чата напишите
