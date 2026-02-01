@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "xafari-mcp": "./src/index.js"
+  },
   "scripts": {
     "crawl": "node src/crawl.js",
     "start": "node src/index.js",

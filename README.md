@@ -41,6 +41,22 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 4. Пересобрать индекс без краулинга:
    - `npm run reindex`
 
+## Запуск через npx
+
+Локально в репозитории:
+
+- `npm install`
+- `npx .` — запустит MCP‑сервер (stdio) через `src/index.js`.
+
+Чтобы запускать из любого каталога:
+
+- `npm link`
+- `npx --no-install xafari-mcp`
+
+Запуск прямо из GitHub (без публикации в npm):
+
+- `npx github:QuAzI/xafari-mcp`
+
 Опции краулера:
 - `npm run crawl` — по умолчанию скачивает только новые страницы.
 - `npm run crawl -- --force` — перекачать все страницы.
