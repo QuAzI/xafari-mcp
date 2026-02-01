@@ -54,6 +54,9 @@ function hashString(value) {
   return crypto.createHash("sha1").update(value).digest("hex").slice(0, 10);
 }
 
+const MAX_MARKDOWN_FILENAME_PREFIX_BYTES = 240;
+const MAX_MARKDOWN_PATH_CHARS = 240;
+
 function sanitizePathSegment(value, maxLength = 80) {
   const cleaned = value.replace(/[<>:"/\\|?*]/g, "_").trim();
   if (cleaned.length <= maxLength) {
@@ -61,6 +64,37 @@ function sanitizePathSegment(value, maxLength = 80) {
   }
   const suffix = hashString(cleaned);
   return `${cleaned.slice(0, maxLength - suffix.length - 1)}-${suffix}`;
+}
+
+function sanitizeFileName(value) {
+  return String(value ?? "")
+    .replace(/[<>:"/\\|?*]/g, "_")
+    .trim();
+}
+
+function truncateUtf8Bytes(value, maxBytes) {
+  const input = String(value ?? "");
+  let output = "";
+  let used = 0;
+  for (const ch of input) {
+    const bytes = Buffer.byteLength(ch, "utf8");
+    if (used + bytes > maxBytes) {
+      break;
+    }
+    output += ch;
+    used += bytes;
+  }
+  return output;
+}
+
+function makeHashedMarkdownFilename(prefix, hash) {
+  const rawPrefix = sanitizeFileName(prefix) || "index";
+  const safePrefix =
+    Buffer.byteLength(rawPrefix, "utf8") > MAX_MARKDOWN_FILENAME_PREFIX_BYTES
+      ? truncateUtf8Bytes(rawPrefix, MAX_MARKDOWN_FILENAME_PREFIX_BYTES)
+      : rawPrefix;
+  const finalPrefix = sanitizeFileName(safePrefix) || "index";
+  return `${finalPrefix}-${hash}.md`;
 }
 
 function sanitizeAssetSegment(value) {
@@ -267,14 +301,16 @@ function slugToMarkdownPath(slug, breadcrumbs = [], baseDir) {
   ) {
     filePath = path.join(dirPath, "index.md");
   }
-  if (filePath.length > 240) {
+  if (filePath.length > MAX_MARKDOWN_PATH_CHARS) {
     const hash = hashString(`${slug}|${breadcrumbParts.join("/")}`);
-    const shortName = sanitizePathSegment(normalized || "index", 40);
-    filePath = path.join(dirPath, `${shortName}-${hash}.md`);
-  }
-  if (filePath.length > 240) {
-    const hash = hashString(`${slug}|${breadcrumbParts.join("/")}`);
-    filePath = path.join(resolvePagesDir(baseDir), `${hash}.md`);
+    const prefix = toSlugSegment(normalized || "index") || "index";
+    const fileName = makeHashedMarkdownFilename(prefix, hash);
+    filePath = path.join(dirPath, fileName);
+    // If breadcrumbs make the path too long, fallback to root `pages/` but
+    // keep a human prefix (never hash-only).
+    if (filePath.length > MAX_MARKDOWN_PATH_CHARS) {
+      filePath = path.join(resolvePagesDir(baseDir), fileName);
+    }
   }
   return filePath;
 }

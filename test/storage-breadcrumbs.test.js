@@ -53,6 +53,47 @@ test("savePageMarkdown stores file under breadcrumbs path", async (t) => {
   assert.deepEqual(pages[0].breadcrumbs, breadcrumbs);
 });
 
+test("savePageMarkdown uses non-hash md filename when path is too long", async (t) => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "xafari-mcp-"));
+  t.after(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const storage = await importStorage();
+  const breadcrumbs = Array.from({ length: 10 }, (_, i) => `Category ${i} ${"A".repeat(90)}`);
+  const page = {
+    slug: `doc_${"a".repeat(500)}`,
+    url: "https://documentation.galaktika-soft.com/xafari/doc_long_slug",
+    title: "Long slug page",
+    breadcrumbs,
+    headings: [],
+    text: "# Long",
+    codeBlocks: [],
+    links: [],
+    etag: null,
+    lastModified: null,
+    updatedAt: new Date().toISOString(),
+    lastCheckedAt: new Date().toISOString(),
+  };
+
+  const writtenPath = await storage.savePageMarkdown(page, tempDir);
+  const normalized = writtenPath.replace(/\\/g, "/");
+
+  // Must be under root pages/ and must not be a hash-only filename.
+  assert.match(normalized, /\/pages\/.+-[0-9a-f]{10}\.md$/i);
+  assert.doesNotMatch(normalized, /\/pages\/[0-9a-f]{10}\.md$/i);
+
+  // Prefix must be at most 240 bytes (UTF-8) before "-<hash>.md".
+  const base = path.basename(writtenPath).replace(/\.md$/i, "");
+  const suffixMatch = base.match(/^(.*)-([0-9a-f]{10})$/i);
+  assert.ok(suffixMatch);
+  const prefix = suffixMatch[1];
+  assert.ok(Buffer.byteLength(prefix, "utf8") <= 240);
+
+  const stat = await fs.stat(writtenPath);
+  assert.equal(stat.isFile(), true);
+});
+
 test("saveBinaryAsset stores file under assets path", async (t) => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "xafari-mcp-"));
   t.after(async () => {
