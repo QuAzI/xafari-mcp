@@ -219,6 +219,7 @@ async function runCrawl(options = {}) {
     fetchImpl,
     allowedLanguagesOverride,
     loadPagesImpl,
+    loadPageMarkdownByMetadataImpl,
     savePageMarkdownImpl,
     loadPagesForIndexImpl,
     savePagesImpl,
@@ -305,7 +306,9 @@ async function runCrawl(options = {}) {
 
     let links = [];
     if (response.status === 304 && existing) {
-      let page = await loadPageMarkdownByMetadata(existing);
+      const loadPageImpl =
+        loadPageMarkdownByMetadataImpl || loadPageMarkdownByMetadata;
+      let page = await loadPageImpl(existing);
       if (!page) {
         response = await fetchResource(current, {}, fetchImpl);
       } else {
@@ -327,7 +330,7 @@ async function runCrawl(options = {}) {
         if (savePageMarkdownImpl) {
           await savePageMarkdownImpl(page);
         } else {
-          await savePageMarkdown(page);
+          await savePageMarkdown(page, undefined, logger);
         }
         consoleLogger.log(`[crawl] cached ${current}`);
       }
@@ -372,7 +375,7 @@ async function runCrawl(options = {}) {
         if (savePageMarkdownImpl) {
           await savePageMarkdownImpl(page);
         } else {
-          await savePageMarkdown(page);
+          await savePageMarkdown(page, undefined, logger);
         }
         consoleLogger.log(`[crawl] fetched ${current}`);
       }

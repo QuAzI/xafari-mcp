@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
+import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.js";
 
@@ -15,15 +16,15 @@ function resolveAssetsDir(baseDir = dataDir) {
 }
 
 async function ensureDataDir() {
-  await fs.mkdir(dataDir, { recursive: true });
+  await fsPromises.mkdir(dataDir, { recursive: true });
 }
 
 async function ensurePagesDir(dirPath = pagesDir) {
-  await fs.mkdir(dirPath, { recursive: true });
+  await fsPromises.mkdir(dirPath, { recursive: true });
 }
 
 async function ensureAssetsDir(dirPath) {
-  await fs.mkdir(dirPath, { recursive: true });
+  await fsPromises.mkdir(dirPath, { recursive: true });
 }
 
 function hashString(value) {
@@ -43,9 +44,181 @@ function sanitizeAssetSegment(value) {
   return value.replace(/[<>:"/\\|?*]/g, "_").trim();
 }
 
+function toSlugSegment(value) {
+  return value
+    .replace(/^doc_/i, "")
+    .replace(/_/g, "-")
+    .toLowerCase();
+}
+
+async function ensureBreadcrumbDirectories(baseDir, breadcrumbParts, logger) {
+  let currentDir = resolvePagesDir(baseDir);
+  for (const part of breadcrumbParts) {
+    const dirName = sanitizePathSegment(part);
+    const slugName = sanitizePathSegment(toSlugSegment(part));
+    const dirPath = path.join(currentDir, dirName);
+    const existed = fs.existsSync(dirPath);
+    await fsPromises.mkdir(dirPath, { recursive: true });
+    if (!existed && logger?.log) {
+      logger.log("crawl.category.create", {
+        category: part,
+        path: dirPath,
+        reason: "breadcrumb",
+      });
+    }
+    const indexPath = path.join(dirPath, "index.md");
+    const legacyCandidates = [
+      `${slugName}.md`,
+      `${slugName.replace(/-/g, "_")}.md`,
+      `doc_${slugName}.md`,
+      `doc_${slugName.replace(/-/g, "_")}.md`,
+    ].map(sanitizePathSegment);
+    let moved = false;
+    try {
+      for (const candidate of legacyCandidates) {
+        const filePath = path.join(currentDir, candidate);
+        if (fs.existsSync(filePath) && !fs.existsSync(indexPath)) {
+          await fsPromises.rename(filePath, indexPath);
+          moved = true;
+          if (logger?.log) {
+            logger.log("crawl.file.move", {
+              from: filePath,
+              to: indexPath,
+              reason: "category-created",
+            });
+          }
+        } else if (fs.existsSync(filePath) && fs.existsSync(indexPath)) {
+          await fsPromises.rm(filePath, { force: true });
+          moved = true;
+          if (logger?.log) {
+            logger.log("crawl.file.move", {
+              from: filePath,
+              to: indexPath,
+              reason: "category-created-duplicate",
+            });
+          }
+        }
+        const innerFilePath = path.join(dirPath, candidate);
+        if (fs.existsSync(innerFilePath) && !fs.existsSync(indexPath)) {
+          await fsPromises.rename(innerFilePath, indexPath);
+          moved = true;
+          if (logger?.log) {
+            logger.log("crawl.file.move", {
+              from: innerFilePath,
+              to: indexPath,
+              reason: "category-created",
+            });
+          }
+        } else if (fs.existsSync(innerFilePath) && fs.existsSync(indexPath)) {
+          await fsPromises.rm(innerFilePath, { force: true });
+          moved = true;
+          if (logger?.log) {
+            logger.log("crawl.file.move", {
+              from: innerFilePath,
+              to: indexPath,
+              reason: "category-created-duplicate",
+            });
+          }
+        }
+      }
+      if (!moved) {
+        const entries = await fsPromises.readdir(currentDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) {
+            continue;
+          }
+          const name = entry.name.replace(/\.md$/i, "");
+          const normalized = toSlugSegment(name.replace(/^doc_/i, ""));
+          if (normalized === slugName && !fs.existsSync(indexPath)) {
+            const filePath = path.join(currentDir, entry.name);
+            await fsPromises.rename(filePath, indexPath);
+            moved = true;
+            if (logger?.log) {
+              logger.log("crawl.file.move", {
+                from: filePath,
+                to: indexPath,
+                reason: "category-created-fallback",
+              });
+            }
+            break;
+          }
+          if (normalized === slugName && fs.existsSync(indexPath)) {
+            const filePath = path.join(currentDir, entry.name);
+            await fsPromises.rm(filePath, { force: true });
+            moved = true;
+            if (logger?.log) {
+              logger.log("crawl.file.move", {
+                from: filePath,
+                to: indexPath,
+                reason: "category-created-duplicate",
+              });
+            }
+            break;
+          }
+        }
+      }
+      if (!moved) {
+        const entries = await fsPromises.readdir(currentDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) {
+            continue;
+          }
+          const filePath = path.join(currentDir, entry.name);
+          const content = await fsPromises.readFile(filePath, "utf8");
+          const headerRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
+          const match = content.match(headerRegex);
+          if (!match) {
+            continue;
+          }
+          const metadata = parseYamlFrontMatter(match[1]);
+          const slugValue = toSlugSegment(String(metadata.slug || ""));
+          const titleValue = String(metadata.title || "").toLowerCase();
+          if (
+            (slugValue && slugValue === slugName) ||
+            (titleValue && titleValue === part.toLowerCase())
+          ) {
+            if (!fs.existsSync(indexPath)) {
+              await fsPromises.rename(filePath, indexPath);
+              if (logger?.log) {
+                logger.log("crawl.file.move", {
+                  from: filePath,
+                  to: indexPath,
+                  reason: "category-created-frontmatter",
+                });
+              }
+            } else {
+              await fsPromises.rm(filePath, { force: true });
+              if (logger?.log) {
+                logger.log("crawl.file.move", {
+                  from: filePath,
+                  to: indexPath,
+                  reason: "category-created-duplicate",
+                });
+              }
+            }
+            moved = true;
+            break;
+          }
+        }
+      }
+    } catch (error) {
+      if (logger?.warn) {
+        logger.warn("crawl.file.move.failed", {
+          category: part,
+          error: error.message,
+        });
+      }
+    }
+    currentDir = dirPath;
+  }
+}
+
 function slugToMarkdownPath(slug, breadcrumbs = [], baseDir) {
   const normalized = (slug || "index").replace(/^\/+/, "");
-  const parts = normalized.split("/").filter(Boolean).map((part) => sanitizePathSegment(part));
+  const parts = normalized
+    .split("/")
+    .filter(Boolean)
+    .map((part) => sanitizePathSegment(toSlugSegment(part)));
   const safePath = parts.length > 0 ? parts.join(path.sep) : "index";
   const breadcrumbParts = Array.isArray(breadcrumbs)
     ? breadcrumbs.map((part) => sanitizePathSegment(part)).filter(Boolean)
@@ -53,7 +226,24 @@ function slugToMarkdownPath(slug, breadcrumbs = [], baseDir) {
   const dirPath = breadcrumbParts.length > 0
     ? path.join(resolvePagesDir(baseDir), ...breadcrumbParts)
     : resolvePagesDir(baseDir);
+  const baseName = parts.length > 0 ? parts[parts.length - 1] : "index";
   let filePath = path.join(dirPath, `${safePath}.md`);
+  const targetDir = path.join(dirPath, baseName);
+  if (fs.existsSync(targetDir)) {
+    try {
+      if (fs.statSync(targetDir).isDirectory()) {
+        filePath = path.join(targetDir, "index.md");
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (
+    breadcrumbParts.length > 0 &&
+    toSlugSegment(breadcrumbParts[breadcrumbParts.length - 1]) === baseName
+  ) {
+    filePath = path.join(dirPath, "index.md");
+  }
   if (filePath.length > 240) {
     const hash = hashString(`${slug}|${breadcrumbParts.join("/")}`);
     const shortName = sanitizePathSegment(normalized || "index", 40);
@@ -267,17 +457,54 @@ function parseMarkdownPage(content, filePath, baseDir) {
   };
 }
 
-async function savePageMarkdown(page, baseDir) {
-  const filePath = slugToMarkdownPath(page.slug, page.breadcrumbs, baseDir);
+async function savePageMarkdown(page, baseDir, logger) {
+  let filePath = slugToMarkdownPath(page.slug, page.breadcrumbs, baseDir);
+  const originalPath = filePath;
+  const breadcrumbParts = Array.isArray(page.breadcrumbs)
+    ? page.breadcrumbs.filter(Boolean)
+    : [];
+  if (breadcrumbParts.length > 0) {
+    await ensureBreadcrumbDirectories(baseDir, breadcrumbParts, logger);
+  }
+  if (breadcrumbParts.length === 0 && page?.slug) {
+    const baseName = sanitizePathSegment(toSlugSegment(page.slug));
+    const pagesDir = resolvePagesDir(baseDir);
+    try {
+      const entries = await fsPromises.readdir(pagesDir, { withFileTypes: true });
+      const categoryDir = entries.find(
+        (entry) =>
+          entry.isDirectory() &&
+          sanitizePathSegment(toSlugSegment(entry.name)) === baseName
+      );
+      if (categoryDir) {
+        const targetDir = path.join(pagesDir, categoryDir.name);
+        const targetIndex = path.join(targetDir, "index.md");
+        filePath = targetIndex;
+      }
+    } catch {
+      // ignore
+    }
+  }
   await ensurePagesDir(path.dirname(filePath));
   const content = serializePageMarkdown(page);
-  await fs.writeFile(filePath, content, "utf8");
+  await fsPromises.writeFile(filePath, content, "utf8");
+  if (originalPath !== filePath && fs.existsSync(originalPath)) {
+    await fsPromises.rm(originalPath, { force: true });
+    if (logger?.log) {
+      logger.log("crawl.file.move", {
+        from: originalPath,
+        to: filePath,
+        reason: "category-exists",
+      });
+    }
+  }
+  return filePath;
 }
 
 async function loadPagesFromMarkdown(baseDir) {
   const pagesDir = resolvePagesDir(baseDir);
   async function walk(dir) {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
     const files = [];
     for (const entry of entries) {
       const entryPath = path.join(dir, entry.name);
@@ -299,8 +526,40 @@ async function loadPagesFromMarkdown(baseDir) {
   const files = await walk(pagesDir);
   const pages = [];
   for (const file of files) {
-    const content = await fs.readFile(file, "utf8");
+    const content = await fsPromises.readFile(file, "utf8");
     pages.push(parseMarkdownPage(content, file, baseDir));
+  }
+  return pages;
+}
+
+async function loadPagesFromMarkdownWithPaths(baseDir) {
+  const pagesDir = resolvePagesDir(baseDir);
+  async function walk(dir) {
+    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...(await walk(entryPath)));
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+        files.push(entryPath);
+      }
+    }
+    return files;
+  }
+
+  try {
+    await ensurePagesDir(pagesDir);
+  } catch {
+    return [];
+  }
+
+  const files = await walk(pagesDir);
+  const pages = [];
+  for (const file of files) {
+    const content = await fsPromises.readFile(file, "utf8");
+    const page = parseMarkdownPage(content, file, baseDir);
+    pages.push({ page, filePath: file });
   }
   return pages;
 }
@@ -308,7 +567,7 @@ async function loadPagesFromMarkdown(baseDir) {
 async function loadPageMetadataFromMarkdown(baseDir) {
   const pagesDir = resolvePagesDir(baseDir);
   async function walk(dir) {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
     const files = [];
     for (const entry of entries) {
       const entryPath = path.join(dir, entry.name);
@@ -385,17 +644,17 @@ function urlToAssetPath(url, baseDir, contentType = "") {
 async function saveBinaryAsset(url, buffer, contentType, baseDir) {
   const filePath = urlToAssetPath(url, baseDir, contentType);
   await ensureAssetsDir(path.dirname(filePath));
-  await fs.writeFile(filePath, Buffer.from(buffer));
+  await fsPromises.writeFile(filePath, Buffer.from(buffer));
   return filePath;
 }
 
 async function saveJson(filePath, value) {
   await ensureDataDir();
-  await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
+  await fsPromises.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
 }
 
 async function loadJson(filePath) {
-  const raw = await fs.readFile(filePath, "utf8");
+  const raw = await fsPromises.readFile(filePath, "utf8");
   return JSON.parse(raw);
 }
 
@@ -426,6 +685,7 @@ function getIndexPath() {
 export {
   savePageMarkdown,
   loadPagesFromMarkdown,
+  loadPagesFromMarkdownWithPaths,
   loadPageMetadataFromMarkdown,
   loadPageMarkdownByMetadata,
   saveBinaryAsset,

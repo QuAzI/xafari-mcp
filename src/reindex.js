@@ -1,5 +1,9 @@
 import { buildIndex } from "./indexer.js";
-import { loadPagesFromMarkdown, saveIndex, savePages } from "./storage.js";
+import {
+  loadPagesFromMarkdown,
+  saveIndex,
+  savePages,
+} from "./storage.js";
 
 async function reindex({
   loadPagesFromMarkdownImpl = loadPagesFromMarkdown,

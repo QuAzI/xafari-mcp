@@ -43,7 +43,7 @@ test("savePageMarkdown stores file under breadcrumbs path", async (t) => {
     "ERP Components",
     "Xafari ASP.NET MVC",
     "Getting Started",
-    "doc_mvc_migration_from_webforms_to_mvc.md"
+    "mvc-migration-from-webforms-to-mvc.md"
   );
   const stat = await fs.stat(expectedPath);
   assert.equal(stat.isFile(), true);

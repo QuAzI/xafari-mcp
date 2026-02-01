@@ -38,6 +38,8 @@ const logger = {
 const noMarkdownIO = {
   savePageMarkdownImpl: async () => {},
   loadPagesForIndexImpl: async (pages) => pages,
+  loadPageMarkdownByMetadataImpl: async (page) => page,
+  collectPages: true,
 };
 
 test("only-new reuses existing page without fetching", async () => {

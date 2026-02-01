@@ -253,7 +253,7 @@ async function fetchAndCachePage(slug) {
     lastCheckedAt: new Date().toISOString(),
   };
 
-  await savePageMarkdown(page);
+  await savePageMarkdown(page, undefined, logger);
   const pages = await loadPagesFromMarkdown();
   const index = buildIndex(pages);
   await savePages(pages);
