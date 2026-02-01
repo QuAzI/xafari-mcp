@@ -1,6 +1,7 @@
 services:
   mcp-service:
     image: node:24-alpine
+    container_name: mcp-service
     working_dir: /app
     command: ["npm", "run", "start:http"]
     ports:
@@ -12,4 +13,10 @@ services:
       - ./package.json:/app/package.json:ro
       - ./src:/app/src:ro
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3333/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
