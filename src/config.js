@@ -24,6 +24,7 @@ const codeLanguages = (process.env.XAFARI_CODE_LANGUAGES ||
   .split(",")
   .map((item) => item.trim().toLowerCase())
   .filter(Boolean);
+const httpPort = Number.parseInt(process.env.XAFARI_HTTP_PORT || "3333", 10);
 const requestTimeoutMs = Number.parseInt(
   process.env.XAFARI_REQUEST_TIMEOUT_MS || "15000",
   10
@@ -39,6 +40,7 @@ export {
   fetchOnMiss,
   logFile,
   codeLanguages,
+  httpPort,
   requestTimeoutMs,
   userAgent,
 };

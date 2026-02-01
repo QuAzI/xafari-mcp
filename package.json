@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
     "crawl": "node src/crawl.js",
+    "start": "node src/index.js",
+    "start:http": "node src/http-server.js",
     "test": "node --test"
   }
 }
