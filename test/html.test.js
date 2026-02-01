@@ -119,3 +119,15 @@ test("extractText uses code_content class language", () => {
   assert.match(result.text, /```cs[\s\S]*public class Class1/);
   assert.match(result.text, /```vb[\s\S]*Public Class Class1/);
 });
+
+test("extractText filters disallowed languages", () => {
+  const html = `
+    <pre><code class="language-cs">public class A {}</code></pre>
+    <pre><code class="language-vb">Public Class A End Class</code></pre>
+  `;
+  const result = extractText(html, "https://documentation.galaktika-soft.com/xafari/", {
+    allowedLanguages: new Set(["cs"]),
+  });
+  assert.match(result.text, /```cs/);
+  assert.doesNotMatch(result.text, /```vb/);
+});

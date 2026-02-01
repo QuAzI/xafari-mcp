@@ -65,13 +65,20 @@ async function handleRequest(req, res) {
   }
 }
 
-const server = http.createServer((req, res) => {
-  handleRequest(req, res).catch((error) => {
-    logger.error("http.unhandled", { error: error.message });
-    sendJson(res, 500, { error: "Internal server error" });
+function createHttpServer() {
+  return http.createServer((req, res) => {
+    handleRequest(req, res).catch((error) => {
+      logger.error("http.unhandled", { error: error.message });
+      sendJson(res, 500, { error: "Internal server error" });
+    });
   });
-});
+}
 
-server.listen(httpPort, () => {
-  logger.log("http.listening", { port: httpPort });
-});
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
+  const server = createHttpServer();
+  server.listen(httpPort, () => {
+    logger.log("http.listening", { port: httpPort });
+  });
+}
+
+export { createHttpServer };

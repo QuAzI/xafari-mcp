@@ -191,6 +191,26 @@ function resolvePage(slug) {
   return pageBySlug?.get(trimmed.replace(/^\/+/, "")) || null;
 }
 
+function resolvePageFromPages(pages, slug) {
+  if (!slug || !Array.isArray(pages)) {
+    return null;
+  }
+  const trimmed = slug.trim();
+  const byUrl = pages.find((page) => page.url === trimmed);
+  if (byUrl) {
+    return byUrl;
+  }
+  const normalizedSlug = trimmed.replace(/^\/+/, "");
+  const bySlug = pages.find((page) => page.slug === normalizedSlug);
+  if (bySlug) {
+    return bySlug;
+  }
+  if (trimmed.startsWith("http")) {
+    const withoutHash = trimmed.split("#")[0];
+    return pages.find((page) => page.url === withoutHash) || null;
+  }
+  return null;
+}
 function resolvePageUrl(slug) {
   const trimmed = slug.trim();
   if (trimmed.startsWith("http")) {
@@ -260,7 +280,7 @@ async function handleToolCall(name, args, options = {}) {
   }
 
   if (name === "get_page") {
-    const page = resolvePage(args.slug);
+    const page = resolvePage(args.slug) || resolvePageFromPages(pages, args.slug);
     if (!page) {
       const allowFetch =
         typeof fetchOnMissOverride === "boolean" ? fetchOnMissOverride : fetchOnMiss;
