@@ -10,7 +10,7 @@ async function importStorage() {
 }
 
 test("savePageMarkdown stores file under breadcrumbs path", async (t) => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "xafari-mcp-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "custom-mcp-"));
   t.after(async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -54,7 +54,7 @@ test("savePageMarkdown stores file under breadcrumbs path", async (t) => {
 });
 
 test("savePageMarkdown uses non-hash md filename when path is too long", async (t) => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "xafari-mcp-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "custom-mcp-"));
   t.after(async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -95,7 +95,7 @@ test("savePageMarkdown uses non-hash md filename when path is too long", async (
 });
 
 test("saveBinaryAsset stores file under assets path", async (t) => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "xafari-mcp-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "custom-mcp-"));
   t.after(async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });

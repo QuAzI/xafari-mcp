@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.js";
 
-const defaultLogPath = path.join(dataDir, "logs", "xafari-mcp.jsonl");
+const defaultLogPath = path.join(dataDir, "logs", "mcp.jsonl");
 const envStdoutEnabled = (process.env.LOG_STDOUT || "").toLowerCase() === "true";
 
 function resolveLogPath(value) {

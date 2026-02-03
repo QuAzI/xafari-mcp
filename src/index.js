@@ -21,6 +21,8 @@ import {
   requestTimeoutMs,
   userAgent,
   codeLanguages,
+  serverInfo as SERVER_INFO,
+  tools as TOOLS,
 } from "./config.js";
 import {
   extractBreadcrumbs,
@@ -30,67 +32,6 @@ import {
   extractTitle,
 } from "./html.js";
 import { createLogger } from "./logger.js";
-
-const SERVER_INFO = {
-  name: "xafari-mcp",
-  version: "0.1.0",
-};
-
-const TOOLS = [
-  {
-    name: "search_docs",
-    description: "Search Xafari documentation pages by text query.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search query." },
-        limit: { type: "integer", minimum: 1, maximum: 20, default: 5 },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "get_page",
-    description: "Return the full extracted content for a documentation page.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        slug: {
-          type: "string",
-          description: "Short slug (e.g. doc_recursive_helper).",
-        },
-        url: {
-          type: "string",
-          description: "Full page URL.",
-        },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "get_examples",
-    description: "Extract code examples related to a topic.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        topic: { type: "string", description: "Topic to search examples for." },
-        limit: { type: "integer", minimum: 1, maximum: 20, default: 5 },
-      },
-      required: ["topic"],
-    },
-  },
-  {
-    name: "explain_concept",
-    description: "Explain a concept using the most relevant documentation.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Concept name." },
-      },
-      required: ["name"],
-    },
-  },
-];
 
 let pagesCache = null;
 let indexCache = null;

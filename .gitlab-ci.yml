@@ -131,7 +131,7 @@ deploy_vm:
     - chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
     - DEPLOY_SSH_PORT="${DEPLOY_SSH_PORT:-22}"
-    - REMOTE_TMP="/tmp/xafari-mcp-data.tgz"
+    - REMOTE_TMP="/tmp/mcp-data.tgz"
     - scp -P "$DEPLOY_SSH_PORT" data.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_TMP}"
     # Expectation: DEPLOY_PATH already contains docker-compose.yml + src/ + package.json (see README).
     - |

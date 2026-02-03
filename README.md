@@ -1,8 +1,7 @@
-# Xafari MCP
+# Custom Framework MCP
 
-MCP-сервер и краулер для документации Xafari. Он скачивает официальные страницы,
-извлекает чистый текст и примеры кода, строит легковесный индекс и предоставляет
-инструменты для поиска и объяснений.
+MCP-сервер для внутренней документации построенной на основе Markdown-документации. Строит легковесный индекс и предоставляет инструменты для поиска и объяснений.
+Так же включает crawler, который может скачивать документацию Xafari с официального сайта, извлекать чистый текст и примеры кода. 
 
 ## Зачем нужен MCP
 
@@ -43,13 +42,14 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 
 ## Переменные окружения
 
-- `DOCS_BASE_URL` (по умолчанию: `https://documentation.galaktika-soft.com/xafari/`)
-- `MAX_PAGES_PER_SESSION` (по умолчанию: `1000`)
-- `FETCH_ON_MISS` (по умолчанию: `true`)
+- `DOCS_BASE_URL` (например: `https://documentation.galaktika-soft.com/xafari/`)
+- `MAX_PAGES_PER_SESSION` (по умолчанию: `10000`)
+- `FETCH_ON_MISS` (по умолчанию: `true`, **только если** задан `DOCS_BASE_URL`)
 - `DATA_DIR` (по умолчанию: `./data`)
 - `REQUEST_TIMEOUT_MS` (по умолчанию: `15000`)
 - `USER_AGENT`
-- `LOG_FILE` (по умолчанию: `logs/docs-mcp.jsonl`)
+- `LOG_FILE` (по умолчанию: `logs/mcp.jsonl`, путь относительно `DATA_DIR`)
+- `LOG_STDOUT` (по умолчанию: `false`) — если `true`, логи дублируются в stdout (удобно в Docker)
 - `CODE_LANGUAGES` (по умолчанию: `cs,js,ts,json,yaml,xml,html,css`)
 - `HTTP_PORT` (по умолчанию: `3333`)
 
@@ -62,7 +62,7 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 ### Fetch on miss
 
 `get_page` может автоматически догружать страницу, если ее нет в кэше.
-Управляется флагом `FETCH_ON_MISS` (по умолчанию `true`).
+Управляется флагом `FETCH_ON_MISS` (по умолчанию `true` если задан `DOCS_BASE_URL`).
 
 ## Подключение MCP в IDE на примере Cursor
 
@@ -70,19 +70,19 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 
 1. Откройте настройки MCP в Cursor.
 2. Добавьте новый сервер со следующими параметрами:
-   - `name`: `xafari-mcp`
+   - `name`: `custom-framework-mcp`
    - `command`: `node`
-   - `args`: `["C:\\Projects\\xafari-mcp\\src\\index.js"]`
-   - `cwd`: `C:\\Projects\\xafari-mcp`
+   - `args`: `["C:\\Projects\\custom-framework-mcp\\src\\index.js"]`
+   - `cwd`: `C:\\Projects\\custom-framework-mcp`
 
 Пример `~/.cursor/mcp.json`
 ```json
 {
   "mcpServers": {
-    "xafari-mcp": {
+    "custom-framework-mcp": {
       "command": "node",
-      "args": ["C:\\Projects\\xafari-mcp\\src\\index.js"],
-      "cwd": "C:\\Projects\\xafari-mcp"
+      "args": ["C:\\Projects\\custom-framework-mcp\\src\\index.js"],
+      "cwd": "C:\\Projects\\custom-framework-mcp"
     }
   }
 }
@@ -95,7 +95,7 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 ```json
 {
   "mcpServers": {
-    "xafari-mcp": {
+    "custom-framework-mcp": {
       "command": "docker",
       "args": ["exec", "-i", "mcp-service", "node", "/app/src/index.js"]
     }
@@ -110,7 +110,7 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 ```json
 {
   "mcpServers": {
-    "xafari-mcp": {
+    "custom-framework-mcp": {
       "url": "http://localhost:3333/sse"
     }
   }
@@ -131,10 +131,34 @@ list tools
 ## Запуск через docker compose
 
 ```shell
-git clone https://github.com/QuAzI/xafari-mcp.git
-cd xafari-mcp
+git clone https://github.com/QuAzI/custom-framework-mcp.git
+cd custom-framework-mcp
 docker compose up -d
 ```
+
+## Запуск через npx
+
+Локально в репозитории:
+
+- `npm install`
+- `npx .` — запустит MCP-сервер (stdio) через `src/index.js`.
+
+Чтобы запускать из любого каталога:
+
+- `npm link`
+- `npx --no-install custom-framework-mcp`
+
+Запуск прямо из GitHub (без публикации в npm):
+
+- `npx github:QuAzI/custom-framework-mcp`
+
+Опции краулера:
+- `npm run crawl` — по умолчанию скачивает только новые страницы.
+- `npm run crawl -- --force` — перекачать все страницы.
+- `npm run crawl -- --no-only-new` — отключить режим "только новые".
+
+Примечание:
+- `--no-only-new` делает полный обход с кешем (ETag/Last-Modified), а `--force` перекачивает все без учета кеша.
 
 ## GitLab CI/CD (внешний репозиторий документации → индекс → деплой на VM)
 
@@ -191,31 +215,6 @@ DEPLOY_PATH/
 3. Добавьте нужные variables (например `DOCS_REPO_URL`, `DOCS_REF`, `DOCS_SUBDIR`)
 
 Job `deploy_vm` в `.gitlab-ci.yml` уже настроен так, чтобы запускаться только для `master` и `schedule` (и не запускаться в Merge Request pipeline).
-
-## Запуск через npx
-
-Локально в репозитории:
-
-- `npm install`
-- `npx .` — запустит MCP-сервер (stdio) через `src/index.js`.
-
-Чтобы запускать из любого каталога:
-
-- `npm link`
-- `npx --no-install xafari-mcp`
-
-Запуск прямо из GitHub (без публикации в npm):
-
-- `npx github:QuAzI/xafari-mcp`
-
-Опции краулера:
-- `npm run crawl` — по умолчанию скачивает только новые страницы.
-- `npm run crawl -- --force` — перекачать все страницы.
-- `npm run crawl -- --no-only-new` — отключить режим "только новые".
-
-Примечание:
-- `--no-only-new` делает полный обход с кешем (ETag/Last-Modified), а `--force` перекачивает все без учета кеша.
-
 
 ## MCP-инструменты
 
@@ -345,7 +344,7 @@ Content-Type: application/json
 ## Формат хранения
 
 - Сырые страницы сохраняются в `data/pages/*.md` с метаданными в заголовке.
-- `pages.json` формируется из markdown-файлов после завершения краулинга.
+- `pages.json` формируется из markdown-файлов после завершения краулинга (по умолчанию это **NDJSON**: один JSON-объект на строку, чтобы файл можно было читать потоково даже при больших объёмах).
 - При сохранении учитываются breadcrumbs: страницы попадают в поддиректории по темам.
 - Ассеты (PDF/картинки) сохраняются в `data/assets`, ссылки в markdown остаются абсолютными.
 
@@ -369,4 +368,4 @@ Content-Type: application/json
 
 ## Логи
 
-Структурированные логи пишутся в `data/logs/xafari-mcp.jsonl` (JSON Lines).
+Структурированные логи пишутся в `data/logs/mcp.jsonl` (JSON Lines) при `DATA_DIR=./data` и дефолтном `LOG_FILE=logs/mcp.jsonl`.

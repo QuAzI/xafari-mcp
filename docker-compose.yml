@@ -7,6 +7,8 @@ services:
     ports:
       - "3333:3333"
     environment:
+      SERVER_INFO: MCP with documentation for Xafari framework
+      DOCS_BASE_URL: https://documentation.galaktika-soft.com/xafari/
       DATA_DIR: /app/data
       HTTP_PORT: "3333"
       LOG_STDOUT: "true"
