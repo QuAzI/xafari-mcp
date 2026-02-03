@@ -52,7 +52,8 @@ function sendJson(res, status, payload, meta = {}) {
     "Content-Length": Buffer.byteLength(body),
   });
   res.end(body);
-  logger.log("http.response.json", {
+  const logFn = status >= 500 ? logger.error : status >= 400 ? logger.warn : logger.log;
+  logFn("http.response.json", {
     requestId: meta.requestId,
     status,
     bytes: Buffer.byteLength(body),
@@ -77,7 +78,8 @@ function sendHtml(res, status, html, meta = {}) {
     "Content-Length": Buffer.byteLength(body),
   });
   res.end(body);
-  logger.log("http.response.html", {
+  const logFn = status >= 500 ? logger.error : status >= 400 ? logger.warn : logger.log;
+  logFn("http.response.html", {
     requestId: meta.requestId,
     status,
     bytes: Buffer.byteLength(body),
@@ -434,7 +436,7 @@ function createHttpServer() {
     };
 
     res.on("finish", () => {
-      logger.log("http.request.finish", {
+      const meta = {
         requestId,
         method: req.method,
         url: req.url,
@@ -443,7 +445,15 @@ function createHttpServer() {
         responseBytes,
         filesReadCount: filesRead.size,
         filesRead: Array.from(filesRead),
-      });
+      };
+
+      if (res.statusCode >= 500) {
+        logger.error("http.request.finish", meta);
+      } else if (res.statusCode >= 400) {
+        logger.warn("http.request.finish", meta);
+      } else {
+        logger.log("http.request.finish", meta);
+      }
     });
 
     logger.log("http.request.start", {

@@ -37,7 +37,15 @@ function createLogger({ logPath, component, stdout } = {}) {
 
     if (stdoutEnabled) {
       try {
-        process.stdout.write(line);
+        // In container logs it's important to keep severities separated:
+        // - warn/error → stderr
+        // - info/debug → stdout
+        const level = String(payload.level || "info").toLowerCase();
+        const stream =
+          level === "warn" || level === "warning" || level === "error"
+            ? process.stderr
+            : process.stdout;
+        stream.write(line);
       } catch {
         // ignore
       }
