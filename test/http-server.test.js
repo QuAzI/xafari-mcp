@@ -53,6 +53,19 @@ test("http server health endpoint", async (t) => {
   assert.deepEqual(JSON.parse(res.body), { ok: true });
 });
 
+test("http server root page shows server info", async (t) => {
+  const { createHttpServer } = await importHttpServer();
+  const server = createHttpServer();
+  await new Promise((resolve) => server.listen(0, resolve));
+  t.after(() => server.close());
+  const port = server.address().port;
+
+  const res = await request("GET", port, "/");
+  assert.equal(res.status, 200);
+  assert.match(res.body, /<!doctype html>/i);
+  assert.match(res.body, /Tools/i);
+});
+
 test("http server tools call", async (t) => {
   const { createHttpServer } = await importHttpServer();
   const server = createHttpServer();

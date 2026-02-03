@@ -22,7 +22,9 @@ import {
   userAgent,
   codeLanguages,
   serverInfo as SERVER_INFO,
+  serverInstructions as SERVER_INSTRUCTIONS,
   tools as TOOLS,
+  toolAliases as TOOL_ALIASES,
 } from "./config.js";
 import {
   extractBreadcrumbs,
@@ -39,6 +41,17 @@ let pageBySlug = null;
 let pageByUrl = null;
 const logger = createLogger({ component: "server", logPath: logFile });
 let dataMissingLogged = false;
+
+class McpError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+}
+
+function asNonEmptyString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 function logStartupInfo() {
   const pagesPath = getPagesPath();
@@ -144,14 +157,14 @@ function respond(id, result) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
-function respondError(id, message) {
+function respondError(id, message, code = -32000) {
   if (id === undefined || id === null) {
     return;
   }
   const payload = {
     jsonrpc: "2.0",
     id,
-    error: { code: -32000, message },
+    error: { code, message },
   };
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
@@ -260,12 +273,18 @@ async function fetchAndCachePage(slug) {
 
 async function handleToolCall(name, args, options = {}) {
   const { loadDataImpl, fetchOnMissOverride, fetchAndCachePageImpl } = options;
-  const { pages, index } = loadDataImpl ? await loadDataImpl() : await loadData();
-  logger.log("tools.call", { name, args });
+  const requestedName = name;
+  const normalizedName = TOOL_ALIASES?.[name] || name;
+  logger.log("tools.call", { name: requestedName, normalizedName, args });
 
-  if (name === "search_docs") {
+  if (normalizedName === "search_docs") {
+    const query = asNonEmptyString(args?.query);
+    if (!query) {
+      throw new McpError(-32602, 'Invalid params: "query" (string) is required.');
+    }
+    const { pages, index } = loadDataImpl ? await loadDataImpl() : await loadData();
     const limit = Number.isFinite(args?.limit) ? args.limit : 5;
-    const results = searchIndex(index, pages, args.query, limit);
+    const results = searchIndex(index, pages, query, limit);
     // Improve excerpts/headings by loading full markdown for top results.
     const enriched = [];
     for (const item of results.results) {
@@ -280,8 +299,12 @@ async function handleToolCall(name, args, options = {}) {
     return toolResult(JSON.stringify({ ...results, results: enriched }, null, 2));
   }
 
-  if (name === "get_page") {
-    const lookup = args.url || args.slug;
+  if (normalizedName === "get_page") {
+    const lookup = asNonEmptyString(args?.url) || asNonEmptyString(args?.slug);
+    if (!lookup) {
+      throw new McpError(-32602, 'Invalid params: provide "slug" or "url" (string).');
+    }
+    const { pages, index } = loadDataImpl ? await loadDataImpl() : await loadData();
     const page = resolvePage(lookup) || resolvePageFromPages(pages, lookup);
     if (!page) {
       const allowFetch =
@@ -309,9 +332,14 @@ async function handleToolCall(name, args, options = {}) {
     return toolResult(JSON.stringify(full || page, null, 2));
   }
 
-  if (name === "get_examples") {
+  if (normalizedName === "get_examples") {
+    const topic = asNonEmptyString(args?.topic);
+    if (!topic) {
+      throw new McpError(-32602, 'Invalid params: "topic" (string) is required.');
+    }
+    const { pages, index } = loadDataImpl ? await loadDataImpl() : await loadData();
     const limit = Number.isFinite(args?.limit) ? args.limit : 5;
-    const search = searchIndex(index, pages, args.topic, limit);
+    const search = searchIndex(index, pages, topic, limit);
     const examples = [];
     for (const result of search.results) {
       const pageMeta = resolvePage(result.slug);
@@ -337,13 +365,18 @@ async function handleToolCall(name, args, options = {}) {
         break;
       }
     }
-    return toolResult(JSON.stringify({ topic: args.topic, examples }, null, 2));
+    return toolResult(JSON.stringify({ topic, examples }, null, 2));
   }
 
-  if (name === "explain_concept") {
-    const search = searchIndex(index, pages, args.name, 3);
+  if (normalizedName === "explain_concept") {
+    const concept = asNonEmptyString(args?.name);
+    if (!concept) {
+      throw new McpError(-32602, 'Invalid params: "name" (string) is required.');
+    }
+    const { pages, index } = loadDataImpl ? await loadDataImpl() : await loadData();
+    const search = searchIndex(index, pages, concept, 3);
     if (!search.results.length) {
-      return toolResult(`No documentation found for: ${args.name}`, {
+      return toolResult(`No documentation found for: ${concept}`, {
         isError: true,
       });
     }
@@ -351,7 +384,7 @@ async function handleToolCall(name, args, options = {}) {
     const primaryMeta = primary?.pageId !== undefined ? pages[primary.pageId] : null;
     const primaryFull = primaryMeta ? await loadPageMarkdownByMetadata(primaryMeta) : null;
     const explanation = {
-      concept: args.name,
+      concept,
       summary: primaryFull ? buildExcerpt(primaryFull.text || "", search.tokens) : primary.excerpt,
       page: {
         slug: primary.slug,
@@ -367,7 +400,7 @@ async function handleToolCall(name, args, options = {}) {
     return toolResult(JSON.stringify(explanation, null, 2));
   }
 
-  return toolResult(`Unknown tool: ${name}`, { isError: true });
+  return toolResult(`Unknown tool: ${requestedName}`, { isError: true });
 }
 
 async function handleMessage(message, customRespond = null, customRespondError = null) {
@@ -379,6 +412,7 @@ async function handleMessage(message, customRespond = null, customRespondError =
     respondFn(id, {
       protocolVersion: "2024-11-05",
       serverInfo: SERVER_INFO,
+      instructions: SERVER_INSTRUCTIONS,
       capabilities: {
         tools: {},
       },
@@ -396,13 +430,17 @@ async function handleMessage(message, customRespond = null, customRespondError =
       const result = await handleToolCall(params?.name, params?.arguments || {});
       respondFn(id, result);
     } catch (error) {
-      respondErrorFn(id, error.message || "Tool call failed.");
+      respondErrorFn(
+        id,
+        error?.message || "Tool call failed.",
+        Number.isFinite(error?.code) ? error.code : -32000
+      );
     }
     return;
   }
 
   if (id !== undefined && id !== null) {
-    respondErrorFn(id, `Unsupported method: ${method}`);
+    respondErrorFn(id, `Unsupported method: ${method}`, -32601);
   }
 }
 

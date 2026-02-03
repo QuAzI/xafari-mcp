@@ -52,6 +52,7 @@ MCP (Model Context Protocol) позволяет IDE и агентам обращ
 - `LOG_STDOUT` (по умолчанию: `false`) — если `true`, логи дублируются в stdout (удобно в Docker)
 - `CODE_LANGUAGES` (по умолчанию: `cs,js,ts,json,yaml,xml,html,css`)
 - `HTTP_PORT` (по умолчанию: `3333`)
+- `TOOLS_PREFIX` — если задана (непустая), инструменты будут иметь имена вида `${TOOLS_PREFIX}search_docs`, `${TOOLS_PREFIX}get_page`, ...
 
 ### Примеры кода
 

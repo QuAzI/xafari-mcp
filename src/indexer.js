@@ -40,7 +40,9 @@ const STOP_WORDS = new Set([
 ]);
 
 function tokenize(text) {
-  return text
+  const input =
+    typeof text === "string" ? text : text === undefined || text === null ? "" : String(text);
+  return input
     .toLowerCase()
     .replace(/[^a-zа-я0-9]+/gi, " ")
     .split(" ")

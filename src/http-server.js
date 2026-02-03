@@ -2,7 +2,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { httpPort, logFile } from "./config.js";
+import { httpPort, logFile, serverInfo, serverInstructions, tools } from "./config.js";
 import { createLogger } from "./logger.js";
 import { handleToolCall, handleMessage } from "./index.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -58,6 +58,115 @@ function sendJson(res, status, payload, meta = {}) {
     bytes: Buffer.byteLength(body),
     bodyPreview: truncateText(body, 2000),
   });
+}
+
+function escapeHtml(value) {
+  const text = value === undefined || value === null ? "" : String(value);
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function sendHtml(res, status, html, meta = {}) {
+  const body = typeof html === "string" ? html : String(html ?? "");
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body),
+  });
+  res.end(body);
+  logger.log("http.response.html", {
+    requestId: meta.requestId,
+    status,
+    bytes: Buffer.byteLength(body),
+  });
+}
+
+function buildHomePage() {
+  const pagesPath = getPagesPath();
+  const pagesExist = fs.existsSync(pagesPath);
+
+  const toolsList = Array.isArray(tools) ? tools : [];
+  const toolsHtml = toolsList
+    .map((t) => {
+      const schema = t?.inputSchema ? escapeHtml(JSON.stringify(t.inputSchema, null, 2)) : "";
+      return [
+        `<div class="tool">`,
+        `<div class="tool__name"><code>${escapeHtml(t?.name || "")}</code></div>`,
+        t?.description ? `<div class="tool__desc">${escapeHtml(t.description)}</div>` : "",
+        schema ? `<details class="tool__schema"><summary>inputSchema</summary><pre>${schema}</pre></details>` : "",
+        `</div>`,
+      ].join("\n");
+    })
+    .join("\n");
+
+  const infoName = escapeHtml(serverInfo?.name || "mcp-server");
+  const infoVersion = escapeHtml(serverInfo?.version || "");
+  const infoDesc = escapeHtml(serverInfo?.description || "");
+  const instructions = escapeHtml(serverInstructions || "");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${infoName}</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px; }
+      .title { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+      h1 { margin: 0; font-size: 22px; }
+      .ver { opacity: .7; font-size: 14px; }
+      .desc { margin-top: 10px; opacity: .85; }
+      .grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 18px; }
+      .card { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; padding: 14px; }
+      .kv { display: grid; grid-template-columns: 220px 1fr; gap: 8px 12px; }
+      .kv b { opacity: .85; }
+      pre { overflow: auto; padding: 10px; border-radius: 10px; background: rgba(127,127,127,.12); }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; }
+      a { color: inherit; }
+      .tools { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 12px; }
+      .tool__name { font-weight: 600; }
+      .tool__desc { margin-top: 6px; opacity: .85; }
+      .tool__schema { margin-top: 8px; }
+      .muted { opacity: .7; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="title">
+        <h1>${infoName}</h1>
+        ${infoVersion ? `<span class="ver">v${infoVersion}</span>` : ""}
+      </div>
+      ${infoDesc ? `<div class="desc">${infoDesc}</div>` : ""}
+
+      <div class="grid">
+        <div class="card">
+          <div class="kv">
+            <b>Health</b><div><a href="/health"><code>/health</code></a></div>
+            <b>MCP SSE</b><div><a href="/sse"><code>/sse</code></a> <span class="muted">(opens an SSE stream)</span></div>
+            <b>Pages index</b><div><code>${escapeHtml(pagesPath)}</code> — ${pagesExist ? "found" : "missing"}</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <b>Instructions</b>
+          <pre>${instructions || "(none)"}</pre>
+        </div>
+
+        <div class="card">
+          <b>Tools (${toolsList.length})</b>
+          <div class="tools">
+            ${toolsHtml || '<div class="muted">(no tools)</div>'}
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
 }
 
 function readBody(req) {
@@ -234,6 +343,12 @@ async function handleSSEMessage(req, res, sessionId, requestId) {
 
 async function handleRequest(req, res, requestId) {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+
+  // Home page with server info
+  if (req.method === "GET" && url.pathname === "/") {
+    sendHtml(res, 200, buildHomePage(), { requestId });
+    return;
+  }
 
   // Health check
   if (req.method === "GET" && url.pathname === "/health") {
