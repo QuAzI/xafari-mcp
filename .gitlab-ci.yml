@@ -1,0 +1,152 @@
+stages:
+  - fetch_docs
+  - build_index
+  - package
+  - deploy
+
+# Default values; override in GitLab CI/CD Variables when needed.
+variables:
+  # Where the indexer stores data (pages/, pages.json, index.json, assets/).
+  DATA_DIR: "$CI_PROJECT_DIR/data"
+
+  # External documentation repo settings.
+  DOCS_REF: "main"          # branch/tag/commit-ish in docs repo
+  DOCS_SUBDIR: "docs"       # path inside docs repo that contains markdown tree
+
+  # npm cache (kept as CI cache, not artifacts)
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+
+workflow:
+  rules:
+    - when: always
+
+fetch_docs:
+  stage: fetch_docs
+  image: node:24-alpine
+  script:
+    - apk add --no-cache git openssh-client
+    - rm -rf docs-src && mkdir -p docs-src
+    # --- Docs repo auth ---
+    # Option A (SSH): set DOCS_SSH_PRIVATE_KEY (recommended for external git over SSH).
+    - |
+      if [ -n "${DOCS_SSH_PRIVATE_KEY:-}" ]; then
+        mkdir -p ~/.ssh
+        printf "%s\n" "$DOCS_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/docs_id_rsa
+        chmod 600 ~/.ssh/docs_id_rsa
+        # Populate known_hosts to avoid interactive prompt.
+        DOCS_HOST="$(node -e "try{console.log(new URL(process.env.DOCS_REPO_URL).hostname)}catch{console.log('')}" || true)"
+        if [ -n "$DOCS_HOST" ]; then
+          ssh-keyscan -H "$DOCS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+        fi
+        export GIT_SSH_COMMAND="ssh -i ~/.ssh/docs_id_rsa -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+      fi
+    # Option B (HTTPS): set DOCS_HTTP_TOKEN and optionally DOCS_HTTP_USER (default: oauth2).
+    - |
+      if [ -z "${DOCS_SSH_PRIVATE_KEY:-}" ] && [ -n "${DOCS_HTTP_TOKEN:-}" ]; then
+        DOCS_HOST="$(node -e "try{console.log(new URL(process.env.DOCS_REPO_URL).hostname)}catch{console.log('')}" || true)"
+        if [ -z "$DOCS_HOST" ]; then
+          echo "Failed to parse DOCS_REPO_URL as https URL; set DOCS_SSH_PRIVATE_KEY or fix DOCS_REPO_URL"
+          exit 1
+        fi
+        printf "machine %s\nlogin %s\npassword %s\n" "$DOCS_HOST" "${DOCS_HTTP_USER:-oauth2}" "$DOCS_HTTP_TOKEN" > ~/.netrc
+        chmod 600 ~/.netrc
+      fi
+    - test -n "${DOCS_REPO_URL:-}" || (echo "DOCS_REPO_URL is required" && exit 1)
+    - git clone --depth 1 --branch "$DOCS_REF" "$DOCS_REPO_URL" docs-src
+    - rm -rf docs-src/.git
+    - test -d "docs-src/$DOCS_SUBDIR" || (echo "Docs subdir not found: docs-src/$DOCS_SUBDIR" && exit 1)
+  artifacts:
+    paths:
+      - docs-src/
+    expire_in: 1 week
+
+build_index:
+  stage: build_index
+  image: node:24-alpine
+  needs:
+    - job: fetch_docs
+      artifacts: true
+  script:
+    - apk add --no-cache rsync
+    - rm -rf data/pages && mkdir -p data/pages
+    # Copy docs markdown tree into DATA_DIR/pages/
+    - rsync -a --delete "docs-src/$DOCS_SUBDIR/" "data/pages/"
+    # Install deps (repo may not have lockfile).
+    - |
+      if [ -f package-lock.json ]; then
+        npm ci --prefer-offline --no-audit --no-fund
+      else
+        npm install --prefer-offline --no-audit --no-fund
+      fi
+    # Build pages.json (NDJSON) + index.json from markdown in DATA_DIR/pages/
+    - DATA_DIR="$DATA_DIR" npm run reindex
+    - test -f "data/pages.json" || (echo "Missing data/pages.json after reindex" && exit 1)
+    - test -f "data/index.json" || (echo "Missing data/index.json after reindex" && exit 1)
+  cache:
+    key: "npm-${CI_PROJECT_NAME}"
+    paths:
+      - .npm/
+  artifacts:
+    paths:
+      - data/
+    expire_in: 1 week
+
+package_data:
+  stage: package
+  image: alpine:3.20
+  needs:
+    - job: build_index
+      artifacts: true
+  script:
+    - apk add --no-cache tar
+    - tar -czf data.tgz data
+    - test -s data.tgz || (echo "data.tgz is empty" && exit 1)
+  artifacts:
+    paths:
+      - data.tgz
+    expire_in: 1 month
+
+deploy_vm:
+  stage: deploy
+  image: alpine:3.20
+  needs:
+    - job: package_data
+      artifacts: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      when: on_success
+    - when: never
+  script:
+    - apk add --no-cache openssh-client tar
+    - test -n "${DEPLOY_HOST:-}" || (echo "DEPLOY_HOST is required" && exit 1)
+    - test -n "${DEPLOY_USER:-}" || (echo "DEPLOY_USER is required" && exit 1)
+    - test -n "${DEPLOY_PATH:-}" || (echo "DEPLOY_PATH is required" && exit 1)
+    - test -n "${DEPLOY_SSH_PRIVATE_KEY:-}" || (echo "DEPLOY_SSH_PRIVATE_KEY is required" && exit 1)
+    - mkdir -p ~/.ssh
+    - printf "%s\n" "$DEPLOY_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+    - DEPLOY_SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+    - REMOTE_TMP="/tmp/xafari-mcp-data.tgz"
+    - scp -P "$DEPLOY_SSH_PORT" data.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_TMP}"
+    # Expectation: DEPLOY_PATH already contains docker-compose.yml + src/ + package.json (see README).
+    - |
+      ssh -p "$DEPLOY_SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" sh -lc "
+        set -eu
+        mkdir -p \"${DEPLOY_PATH}\"
+        rm -rf \"${DEPLOY_PATH}/data\"
+        tar -xzf \"${REMOTE_TMP}\" -C \"${DEPLOY_PATH}\"
+        cd \"${DEPLOY_PATH}\"
+        docker compose up -d --remove-orphans
+        docker compose restart \"${DEPLOY_COMPOSE_SERVICE:-mcp-service}\"
+      "
+    # Optional: set DEPLOY_HEALTHCHECK_URL (e.g. http://host:3333/health) to verify after restart.
+    - |
+      if [ -n "${DEPLOY_HEALTHCHECK_URL:-}" ]; then
+        apk add --no-cache curl >/dev/null
+        curl -fsS "${DEPLOY_HEALTHCHECK_URL}" >/dev/null
+      fi

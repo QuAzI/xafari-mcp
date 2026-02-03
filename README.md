@@ -136,6 +136,62 @@ cd xafari-mcp
 docker compose up -d
 ```
 
+## GitLab CI/CD (внешний репозиторий документации → индекс → деплой на VM)
+
+В репозитории есть пример пайплайна [`.gitlab-ci.yml`](./.gitlab-ci.yml) для сценария:
+
+- скачать документацию из **внешнего git-репозитория**
+- собрать индекс из markdown (`npm run reindex`, данные в `DATA_DIR/pages`)
+- задеплоить на VM по SSH и перезапустить `docker compose`, чтобы HTTP-сервер поднялся с актуальными `pages.json/index.json`
+
+### CI/CD variables (настраиваются в GitLab → Settings → CI/CD → Variables)
+
+Переменные для скачивания документации:
+
+- `DOCS_REPO_URL` — URL внешнего репозитория документации (SSH или HTTPS)
+- `DOCS_REF` — ветка/тег (по умолчанию: `main`)
+- `DOCS_SUBDIR` — подкаталог в репозитории документации с markdown-деревом (по умолчанию: `docs`)
+- `DOCS_SSH_PRIVATE_KEY` — **опционально**, SSH ключ для доступа к docs repo (если `DOCS_REPO_URL` по SSH)
+- `DOCS_HTTP_TOKEN` — **опционально**, токен для доступа по HTTPS (используется через `~/.netrc`)
+- `DOCS_HTTP_USER` — **опционально**, логин для `~/.netrc` (по умолчанию: `oauth2`, удобно для GitLab)
+
+Переменные для деплоя на VM:
+
+- `DEPLOY_HOST` — хост VM (DNS/IP)
+- `DEPLOY_USER` — пользователь на VM
+- `DEPLOY_PATH` — каталог на VM, где лежит сервис
+- `DEPLOY_SSH_PRIVATE_KEY` — SSH ключ для деплоя
+- `DEPLOY_SSH_PORT` — **опционально**, порт SSH (по умолчанию: `22`)
+- `DEPLOY_COMPOSE_SERVICE` — **опционально**, имя сервиса compose (по умолчанию: `mcp-service`)
+- `DEPLOY_HEALTHCHECK_URL` — **опционально**, URL для проверки после деплоя (например `http://<host>:3333/health`)
+
+### Ожидаемая структура на VM (`DEPLOY_PATH`)
+
+Пайплайн предполагает, что на VM уже есть каталог сервиса с `docker-compose.yml` и исходниками (а CI обновляет только `data/`):
+
+```
+DEPLOY_PATH/
+  docker-compose.yml
+  package.json
+  src/
+  data/              # обновляется из CI (pages/, pages.json, index.json, assets/)
+```
+
+После доставки `data.tgz` CI выполняет:
+
+- `docker compose up -d --remove-orphans`
+- `docker compose restart mcp-service` (чтобы сервер перечитал индекс, т.к. он кэшируется в памяти процесса)
+
+### Расписание (Schedule)
+
+Чтобы документация/индекс обновлялись регулярно:
+
+1. GitLab → **CI/CD → Schedules** → Create a new schedule
+2. Выберите ветку `master`
+3. Добавьте нужные variables (например `DOCS_REPO_URL`, `DOCS_REF`, `DOCS_SUBDIR`)
+
+Job `deploy_vm` в `.gitlab-ci.yml` уже настроен так, чтобы запускаться только для `master` и `schedule` (и не запускаться в Merge Request pipeline).
+
 ## Запуск через npx
 
 Локально в репозитории:
